@@ -360,7 +360,7 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
 
                 if ($Bitdefender) {
                     Write-Host -ForegroundColor Green "Bitdefender Product and Engine (antimalware signatures) versions:"
-                    Write-Output $BDVar
+                    $BDVar | Format-List
                 }
                 elseif ($WindowsDefender) {
                     if ($WDMessage) {
