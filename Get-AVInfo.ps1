@@ -166,6 +166,7 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
                 Write-Verbose "Updating Windows Defender definitions"
                 # Can also use 'Update-MpSignature', but it returns less verbose output than the below command
                 & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -signatureupdate
+
             }
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
@@ -208,29 +209,34 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
                     if ($BDProc = Get-Process EPSecurityService -ErrorAction SilentlyContinue) {
                         $UpdateStatus = & "C:\Program Files\Bitdefender\Endpoint Security\product.console.exe" /c GetUpdateStatus antivirus
                         # retrive last update time
-                        $EpochTimeUpdate = ($UpdateStatus.Split(': ')[2]).split('')[0]
-                        # convert from epoch time to reg. time
-                        $ConvertedUpdateTime = (([System.DateTimeOffset]::FromUnixTimeSeconds($EpochTimeUpdate)).DateTime)
-                        # retrive last attempted update time
-                        $EpochTimeAttempt = ($UpdateStatus.Split(': ')[5]).split('')[0]
-                        # convert from epoch time to reg. time
-                        $ConvertedAttemptTime = (([System.DateTimeOffset]::FromUnixTimeSeconds($EpochTimeAttempt)).DateTime)
-                        # last update exit status
-                        $Num = $UpdateStatus.Split(': ')[8]
-                        if ($Num -eq '0') {
-                            $Var = $true
+                        if (($UpdateStatus) -notlike '*error*') {
+                            $EpochTimeUpdate = ($UpdateStatus.Split(': ')[2]).split('')[0]
+                            # convert from epoch time to reg. time
+                            $ConvertedUpdateTime = (([System.DateTimeOffset]::FromUnixTimeSeconds($EpochTimeUpdate)).DateTime)
+                            # retrive last attempted update time
+                            $EpochTimeAttempt = ($UpdateStatus.Split(': ')[5]).split('')[0]
+                            # convert from epoch time to reg. time
+                            $ConvertedAttemptTime = (([System.DateTimeOffset]::FromUnixTimeSeconds($EpochTimeAttempt)).DateTime)
+                            # last update exit status
+                            $Num = $UpdateStatus.Split(': ')[8]
+                            if ($Num -eq '0') {
+                                $Var = $true
+                            }
+                            else {
+                                $Var = $false
+                            }
+                            $BDProps = [Ordered]@{
+                                'Product version'                   = $BDProc.FileVersion
+                                'Engine version'                    = & 'C:\Program Files\Bitdefender\Endpoint Security\product.console.exe' /c GetVersion antivirus
+                                'Definitions last updated'          = $ConvertedUpdateTime
+                                'Definitions update last attempted' = $ConvertedAttemptTime
+                                'Last update successfull'           = $Var
+                            }
+                            $BDVar = New-Object -TypeName psobject -Property $BDProps
                         }
                         else {
-                            $Var = $false
-                        }
-                        $BDProps = [Ordered]@{
-                            'Product version'                   = $BDProc.FileVersion
-                            'Engine version'                    = & 'C:\Program Files\Bitdefender\Endpoint Security\product.console.exe' /c GetVersion antivirus
-                            'Definitions last updated'          = $ConvertedUpdateTime
-                            'Definitions update last attempted' = $ConvertedAttemptTime
-                            'Last update successfull'           = $Var
-                        }
-                        $BDVar = New-Object -TypeName psobject -Property $BDProps
+                            $BDVar = "An error has occured while checking the Bitdefender status. Please look into this.`nResults from running '& `"C:\Program Files\Bitdefender\Endpoint Security\product.console.exe`" /c GetUpdateStatus antivirus': $($UpdateStatus)"
+                        } # if -notlike *error*
                     } # if $BDProc
                     else {
                         $BDVar = "Bitdefender is either not installed or else not running."
