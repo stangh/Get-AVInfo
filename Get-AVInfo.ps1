@@ -3,7 +3,8 @@ function Get-AVInfo {
 .SYNOPSIS
 The script looks for and returns many different AVs on a system. It also displays detailed information on either Vipre, Bitdefender, or Windows Defender, depending on the switch you run with the command. The script can also be used to either enable Vipre, or update Vipre, Windows Defender or Bitdefender definitions, as well as test if the machine can reach intellisecure.myvipre.com.
 .DESCRIPTION
-This script first queries the machine for a bunch of different AVs, from a predefined list, by searching installed services. It then uses CIM (or WMI) to retrive any AVs registered with Windows. The script then retrieves more detailed information about the specific AV you specify (Vipre, Bitdefender, or Windows Defender); if nothing is specified, the default is Vipre, unless the 'DefaultOverride' parameter is used. Finally, the script retrieves basic information about the hardware and operating system, often helpful when troubleshooting things like out-of-date definitions. The scipt can do many more things like update definitions for the different antiviruses, as well as other useful checks and actions. For more information about what the script can do, run 'help Get-AVInfo -Detailed', specifically the help for the parameters. There are also things that happen in the background not listed here or in the parameter help, and that only display on screen if found to be true. For more on that, you'll have to read through the actual script:)
+This script first queries the machine for a bunch of different AVs, from a predefined list, by searching installed services. It then uses CIM (or WMI) to retrive any AVs registered with Windows. The script then retrieves more detailed information about the specific AV you specify (Vipre, Bitdefender, or Windows Defender); if nothing is specified, the default is Vipre, unless the 'DefaultOverride' parameter is used. Finally, the script retrieves basic information about the hardware and operating system, often helpful when troubleshooting things like out-of-date definitions. 
+The script can do other things as well, like update definitions for the different antiviruses, as well as other useful checks and actions. For more information about what the script can do, read the README.md file in github, and check out the PowerShell help on the parameters, provided with this script. There are also tests and checks that happen in the background that are not listed here or in the parameter help (but are in the github README.md file), and that only show up in the script results if found to be true. For more on that, you'll have to read through the actual script:)
 .PARAMETER Bitdefender
 Returns detailed information about Bitdefender installed on the system. Cannot be used with Vipre and Windows Defender parameters.
 .PARAMETER UpdateBDDefs
@@ -72,7 +73,7 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
 
         [Parameter(parametersetname = 'Vipre',
             Mandatory = $false)]
-        [switch]$Viper,
+        [switch]$Vipre,
 
         [Parameter(parametersetname = 'Default_Override',
             Mandatory = $false)]
@@ -174,7 +175,7 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
             }
             'Symantec' {
                 Write-Verbose "Moving the Symantec CleanWipe tool to C:\Windows\Temp"
-                # For use in the big TT ticket with the 133 machines with Symantec. This utility cannot typically be run from where ScreenConnect drops it, hence the need to move it.
+                # For use in the big TT ticket with the 100+ machines with Symantec. This utility cannot typically be run from where ScreenConnect drops it, hence the need to move it.
                 $CW_Path = 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\'
                 if (Test-Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*') {
                     Move-Item -Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*' -Destination 'C:\Windows\Temp\CleanWipe'
@@ -190,32 +191,36 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
         
                 Write-Verbose -Message "Retrieving AVs registered with Windows by querying WMI"
                 if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
-                    # Servers don't appear to have the 'securitycenter2' namespace, hence the need for '-ErrorAction'
-                    # Instead, you can run this on servers (for WD): Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus 
+                    # Servers don't have the 'securitycenter2' namespace, hence the need for the ErrorAction below
+                    # Instead, you can run the following on servers (for WD): Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus 
                     $AV = Get-CimInstance antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
                     if (!$AV) {
                         $AV = Get-CimInstance antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
                     } 
-                }
+                } # if Get-CimInstance
                 else {
                     $AV = Get-WmiObject antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
                     if (!$AV) {
                         $AV = Get-WmiObject antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
                     }
-                } # if Get-Command
+                } # if !Get-CimInstance
         
                 if ($Bitdefender) {
                     Write-Verbose -Message "Retrieving Bitdefender info"
                     if ($BDProc = Get-Process EPSecurityService -ErrorAction SilentlyContinue) {
+                        # Bitdefender definitions update info
                         $UpdateStatus = & "C:\Program Files\Bitdefender\Endpoint Security\product.console.exe" /c GetUpdateStatus antivirus
-                        # retrive last update time
-                        if (($UpdateStatus) -notlike '*error*') {
+                        # Bitdefender version number
+                        $BDVersion = & 'C:\Program Files\Bitdefender\Endpoint Security\product.console.exe' /c GetVersion antivirus
+                        Write-Verbose "Performing epoch time conversion"
+                        try {
+                            # save last update time to variable
                             $EpochTimeUpdate = ($UpdateStatus.Split(': ')[2]).split('')[0]
-                            # convert from epoch time to reg. time
+                            # convert from epoch time to standard time
                             $ConvertedUpdateTime = (([System.DateTimeOffset]::FromUnixTimeSeconds($EpochTimeUpdate)).DateTime)
-                            # retrive last attempted update time
+                            # save last attempted update time to variable
                             $EpochTimeAttempt = ($UpdateStatus.Split(': ')[5]).split('')[0]
-                            # convert from epoch time to reg. time
+                            # convert from epoch time to standard time
                             $ConvertedAttemptTime = (([System.DateTimeOffset]::FromUnixTimeSeconds($EpochTimeAttempt)).DateTime)
                             # last update exit status
                             $Num = $UpdateStatus.Split(': ')[8]
@@ -227,16 +232,17 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
                             }
                             $BDProps = [Ordered]@{
                                 'Product version'                   = $BDProc.FileVersion
-                                'Engine version'                    = & 'C:\Program Files\Bitdefender\Endpoint Security\product.console.exe' /c GetVersion antivirus
+                                'Engine version'                    = $BDVersion
                                 'Definitions last updated'          = $ConvertedUpdateTime
                                 'Definitions update last attempted' = $ConvertedAttemptTime
                                 'Last update successfull'           = $Var
                             }
                             $BDVar = New-Object -TypeName psobject -Property $BDProps
+                        } # try
+                        catch {
+                            # suppresses the error that occurs when attempting to call a method on a null-valued expression, 
+                            # which happens when $UpdateStatus returns error codes instead of meaningful data
                         }
-                        else {
-                            $BDVar = "An error has occured while checking the Bitdefender status. Please look into this.`nResults from running '& `"C:\Program Files\Bitdefender\Endpoint Security\product.console.exe`" /c GetUpdateStatus antivirus': $($UpdateStatus)"
-                        } # if -notlike *error*
                     } # if $BDProc
                     else {
                         $BDVar = "Bitdefender is either not installed or else not running."
@@ -275,7 +281,7 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
                     $RegKey = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue
                     # 'C:\Program Files\Windows Defender\MpCmdRun.exe' -wdenable ?
                 } # elseif $WindowsDefender
-                elseif (!$DefaultOverride -or $Viper) {
+                elseif (!$DefaultOverride -or $Vipre) {
                     try {
                         Write-Verbose -Message "Retrieving Vipre info"
                         if (Get-Process SBAM* -ErrorAction Stop) {
