@@ -11,7 +11,7 @@ From a PowerShell prompt on the machine in question, simply paste the one-liner 
 
 Feel free to message me with any questions or suggestions.  
 
-    **wget -uri 'https://raw.githubusercontent.com/stangh/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing | iex**
+    wget -uri 'https://raw.githubusercontent.com/stangh/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing | iex
 
 ### Features
 
@@ -38,5 +38,6 @@ In addition to retrieving information pertaining to the various antivirus progra
 
 ---
 
-As with all things PowerShell, read the detailed help provided in the script to learn how to use it. Just run:  
-    **help Get-AVInfo -detailed**.
+As with all things PowerShell, read the detailed help provided in the script to learn how to use it. Just run:
+    
+    help Get-AVInfo -detailed.
