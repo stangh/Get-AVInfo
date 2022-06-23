@@ -40,4 +40,4 @@ In addition to retrieving information pertaining to the various antivirus progra
 
 As with all things PowerShell, read the detailed help provided in the script to learn how to use it. Just run:
     
-    help Get-AVInfo -detailed.
+    Help Get-AVInfo -Detailed
