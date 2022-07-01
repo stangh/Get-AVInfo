@@ -32,6 +32,8 @@ In addition to retrieving information pertaining to the various antivirus progra
     - Test if the machine is being blocked from reaching the Vipre portal (due to a web content filter for ex.)
 - **Sophos**
     - Test if Sophos Tamper Protection is enabled 
+- **Symantec**
+    - Download and run the CleanWipe utility
 - **Return information about the Hardware, Operating System and User**
 
 ### Help
