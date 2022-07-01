@@ -33,7 +33,8 @@ Enables Vipre's Active Protection when it is disabled. This does not make change
 .PARAMETER RenameDefsFolder
 Renames the definitions folder, for when defs are corrupted. NOTE: The SBAMSvc service must be in a stopped state, or else permission to rename the folder will be denied.
 .PARAMETER CleanWipe
-For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConnect puts it. This parameter moves it to 'C:\Windows\Temp\CleanWipe', and then runs it from there. 
+The script looks for the CleanWipe utility in two different places, and runs it. 
+On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConnect puts it. If the utility is found in that location, PowerShell will move it to 'C:\Windows\Temp\CleanWipe', and then run it from there.
 .EXAMPLE
     PS C:\> Get-AVInfo -WindowsDefender
     This retrieves AVs installed on the system, as well as detailed information on Windows Defender.
@@ -175,20 +176,37 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
                 & "C:\Program Files\Bitdefender\Endpoint Security\product.console.exe" /c StartUpdate
             }
             'Symantec' {
-                Write-Verbose "Moving the Symantec CleanWipe tool to C:\Windows\Temp"
-                # For use in the big TT ticket with the 100+ machines with Symantec. This utility cannot typically be run from where ScreenConnect drops it, hence the need to move it.
-                $CW_Path = 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\'
-                if (Test-Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*') {
+                if (Test-Path 'C:\Windows\Temp\CleanWipe') {
+                    Write-Verbose "The CleanWipe utility is present at 'C:\Windows\Temp\CleanWipe'.`nRunning the utility."
+                    Start-Process "C:\Windows\Temp\CleanWipe\CleanWipe.exe"
+                }
+                elseif (Test-Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*') {
+                    # if SC was used to transfer the utility to the machine, it's found at this location, 
+                    # and the utility cannot typically be run from where ScreenConnect drops it, hence the need to move it.
+                    Write-Verbose "Moving the Symantec CleanWipe tool to C:\Windows\Temp"
                     Move-Item -Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*' -Destination 'C:\Windows\Temp\CleanWipe'
                     Start-Process 'C:\Windows\Temp\CleanWipe\CleanWipe.exe'
                 }
                 else {
-                    Write-Host -ForegroundColor Cyan "The CleanWipe folder does not exist at '$CW_Path'."
-                } # if Test-Path
+                    Write-Host "The CleanWipe folder cannot be found."
+                    $Answer = Read-Host "Would you like to download the CleanWipe utility? (Y/N)"
+                    if ($Answer -eq 'Y') {
+                        Write-Host
+                        (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/CleanWipe_14.3_8259.zip", "C:\Windows\Temp\CleanWipe.zip")
+                        Write-Verbose "Expanding the downloaded zip file and running it"
+                        # using the .NET method, to account for Windows 7 machines that don't have the 'Expand-Archive' cmdlet
+                        Add-Type -AssemblyName "System.IO.Compression.Filesystem"
+                        [System.IO.Compression.ZipFile]::ExtractToDirectory("C:\Windows\Temp\CleanWipe.zip", "C:\Windows\Temp\CleanWipe")
+                        Start-Process "C:\Windows\Temp\CleanWipe\CleanWipe.exe"
+                    } # if 'Y'
+                    elseif ($Answer -eq 'N') {
+                        Write-Host "Exiting script."
+                    } # if 'N'
+                }
             } # if ParameterSet 'Symantec'
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast* -Exclude *firewall*
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast* -Exclude *firewall*, '*AMD Crash*'
         
                 Write-Verbose -Message "Retrieving AVs registered with Windows by querying WMI"
                 if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
@@ -242,7 +260,7 @@ For use in the big TT Symantec ticket. On the Windows 7 machines, the CleanWipe 
                         } # try
                         catch {
                             # suppresses the error that occurs when attempting to call a method on a null-valued expression, 
-                            # which happens when $UpdateStatus returns error codes instead of meaningful data
+                            # which happens when Bitdefender feeds error codes to $UpdateStatus instead of meaningful data
                         }
                     } # if $BDProc
                     else {
