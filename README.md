@@ -46,3 +46,7 @@ In addition to retrieving information pertaining to the various antivirus progra
 As with all things PowerShell, read the detailed help provided in the script to learn how to use it. Just run:
     
     Help Get-AVInfo -Detailed
+
+For a quick view of the different parameters you can use when running the script, paste the following:
+
+    Get-Command Get-AVInfo -Syntax
