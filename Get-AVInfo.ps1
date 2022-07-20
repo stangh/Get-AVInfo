@@ -21,6 +21,8 @@ When specifiying this parameter, the script will also test that the machine can 
 Vipre is the default, when no AV is specified.
 .PARAMETER DefaultOverride
 Overrides the default behavior of retrieving Vipre information, when no other AV is specified. This cannot be used with any parameter other than the 'NoMachineInfo' parameter.
+.PARAMETER InstallVipre
+Downloads the Vipre installer from our LTShare and runs it.
 .PARAMETER UpdateVipreDefs
 Updates Vipre definitions. Can only be used with the EnableVipre parameter.
 .PARAMETER NoMachineInfo
@@ -97,6 +99,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$RenameDefsFolder,
 
+        [Parameter(parametersetname = 'Vipre_Install',
+            Mandatory = $false)]
+        [Switch]$InstallVipre,
+
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateWDDefs,
@@ -111,7 +117,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Default_Override')]
         [Switch]$NoMachineInfo,
 
-        #for the TT Symantec ticket only
+        # for the TT Symantec ticket only
         [Parameter(parametersetname = 'Symantec',
             Mandatory = $false)]
         [Switch]$CleanWipe
@@ -125,56 +131,93 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             'Vipre_Action' { 
                 if ($EnableVipre) {
                     Write-Verbose "Enabling SBAMSvc"
-                    if ( ((Get-Service SBAMSvc).StartType -eq 'Automatic') -and ((Get-Service SBAMSvc).status -eq 'Running')) {
+                    if (!(Get-Service SBAMSvc -ErrorAction SilentlyContinue)) {
+                        Write-Warning "No SBAMSvc service present. Cannot enable Vipre."
+                    }
+                    elseif ( ((Get-Service SBAMSvc).StartType -eq 'Automatic') -and ((Get-Service SBAMSvc).status -eq 'Running')) {
                         Write-Host -ForegroundColor Green "SBAMSvc is already set to auto-start, and is running."
                     }
                     else {
+                        Write-Verbose "Enabling SBAMSvc and starting it"
                         Set-Service SBAMsvc -StartupType Automatic -Status Running
                         Get-Service SBAMSvc | Format-Table Name, DisplayName, Status, StartType
                     }
                 } # if $EnableVipre
                 if ($UpdateVipreDefs) {
-                    Write-Verbose "Updating Vipre definitions"
-                    & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /updatedefs
-                    Write-Host -ForegroundColor Green 'Date & time definitions last updated:'
-                    $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])"
-                }
-                if ($EnableVipreAP) {
-                    Write-Verbose "Enabling Vipre Active Protection"
-                    $APState = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate
-                    if ($APState -eq 'Enabled') {
-                        Write-Host -ForegroundColor Green "Vipre Active Protection is already enabled."
+                    if (!(Test-Path 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe')) {
+                        Write-Warning "Cannot update Vipre definitions. Core Vipre files are missing. Please (re)install Vipre and try again."
                     }
                     else {
-                        & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /enableap
+                        Write-Verbose "Updating Vipre definitions"
+                        & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /updatedefs
+                        Write-Host -ForegroundColor Green 'Date & time definitions last updated:'
+                        $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])"
+                    } # if Test-Path
+                } # if $UpdateVipreDefs
+                if ($EnableVipreAP) {
+                    if (!(Test-Path 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe')) {
+                        Write-Warning "Cannot enable active protection. Core Vipre files are missing. Please (re)install Vipre and try again."
+                    }
+                    else {
+                        Write-Verbose "Enabling Vipre Active Protection"
                         $APState = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate
                         if ($APState -eq 'Enabled') {
-                            Write-Host -ForegroundColor Green "Vipre Active Protection successfully enabled."                        
+                            Write-Host -ForegroundColor Green "Vipre Active Protection is already enabled."
                         }
                         else {
-                            Write-Warning "Vipre Active Protection is still not enabled. Please look into this."
+                            & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /enableap
+                            $APState = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate
+                            if ($APState -eq 'Enabled') {
+                                Write-Host -ForegroundColor Green "Vipre Active Protection successfully enabled."                        
+                            }
+                            else {
+                                Write-Warning "Vipre Active Protection is still not enabled. Please look into this."
+                            }
                         }
-                    }
+                    } # if Test-Path
                 } # if $EnableVipreAP
                 if ($RenameDefsFolder) {
-                    if ((Get-Service SBAMSvc).Status -eq 'Stopped') {
-                        Rename-Item -Path 'C:\Program Files (x86)\VIPRE Business Agent\Definitions\' -NewName "Definitions.old$(Get-Random)"
+                    if (!(Test-Path 'C:\Program Files*\VIPRE Business Agent\Definitions')) {
+                        Write-Warning "Cannot rename definitions folder. Definitions folder is not present."
                     }
                     else {
-                        Write-Host -ForegroundColor Green "Cannot rename the definitions folder while the SBAMSvc service is running. `nStop Vipre from the portal, and then try again."
-                    }
-                }
+                        if ((Get-Service SBAMSvc).Status -eq 'Stopped') {
+                            Rename-Item -Path 'C:\Program Files (x86)\VIPRE Business Agent\Definitions\' -NewName "Definitions.old$(Get-Random)"
+                        }
+                        else {
+                            Write-Host -ForegroundColor Green "Cannot rename the definitions folder while the SBAMSvc service is running. `nStop Vipre from the portal, and then try again."
+                        }
+                    } # if Test-Path
+                } # if $RenameDefsFolder
             } # if ParameterSet 'Vipre_Action'
             'WindowsDefender_Action' {
                 Write-Verbose "Updating Windows Defender definitions"
                 # Can also use 'Update-MpSignature', but it returns less verbose output than the below command
                 & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -signatureupdate
-
             }
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
                 & "C:\Program Files\Bitdefender\Endpoint Security\product.console.exe" /c StartUpdate
             }
+            'Vipre_Install' {
+                $Answer = Read-Host "Would you like to download the Vipre installer to the machine? (Y/N)"
+                if ($Answer -eq 'Y') {
+                    Write-Host -ForegroundColor Green "Downloading Vipre installer from LTShare. Please wait.."
+                    # To account for Windows 7 machines I do not use the Invoke-WebRequest or Invoke-RestMethod cmdlets for downloading the installer
+                    (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/vipre_agent_intellisecure_12.3.8160.msi", "C:\Windows\Temp\VipreInstaller.msi")
+                    Write-Host -ForegroundColor Green "Download complete (version 12.3.8160).`nInstaller saved to 'C:\Windows\Temp\VipreInstaller.msi'."
+                    $Answer1 = Read-Host "Run the installer? (Y/N)"
+                    if ($Answer1 -eq 'Y') {
+                        & "C:\Windows\Temp\VipreInstaller.msi"
+                    }
+                    elseif ($Answer1 -eq 'N') {
+                        Write-Host -ForegroundColor Green "Installer will NOT be run.`nExiting script."
+                    }
+                }
+                elseif ($Answer -eq 'N') {
+                    Write-Host -ForegroundColor Green "Cancelling the installer download.`nExiting the script."  
+                } 
+            } # if ParameterSet 'Vipre_Install'
             'Symantec' {
                 if (Test-Path 'C:\Windows\Temp\CleanWipe') {
                     Write-Verbose "The CleanWipe utility is present at 'C:\Windows\Temp\CleanWipe'.`nRunning the utility."
@@ -182,7 +225,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
                 elseif (Test-Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*') {
                     # if SC was used to transfer the utility to the machine, it's found at this location, 
-                    # and the utility cannot typically be run from where ScreenConnect drops it, hence the need to move it.
+                    # and since the utility cannot typically be run from where ScreenConnect drops it, move it is nec.
                     Write-Verbose "Moving the Symantec CleanWipe tool to C:\Windows\Temp"
                     Move-Item -Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*' -Destination 'C:\Windows\Temp\CleanWipe'
                     Start-Process 'C:\Windows\Temp\CleanWipe\CleanWipe.exe'
@@ -191,8 +234,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host "The CleanWipe folder cannot be found."
                     $Answer = Read-Host "Would you like to download the CleanWipe utility? (Y/N)"
                     if ($Answer -eq 'Y') {
-                        Write-Host
+                        Write-Verbose 'Downloading the utility'
+                        # To account for Windows 7 machines, I don't use the typical Invoke-WebRequest and Expand-Archive cmdlets below
                         (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/CleanWipe_14.3_8259.zip", "C:\Windows\Temp\CleanWipe.zip")
+                        Write-Verbose "Download complete"
                         Write-Verbose "Expanding the downloaded zip file and running it"
                         # using the .NET method, to account for Windows 7 machines that don't have the 'Expand-Archive' cmdlet
                         Add-Type -AssemblyName "System.IO.Compression.Filesystem"
@@ -309,6 +354,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             @{ n = 'Vipre Version'; e = { $_.FileVersion } }, 
                             @{ n = 'Active Protection State'; e = { & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate } }, 
                             @{ n = 'Date & time definitions last updated'; e = { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } }
+                            #[datetime](($var -split '- ')[1])
                         }
                         elseif ((Get-Service SBAMsvc -ErrorAction SilentlyContinue).StartType -eq 'Disabled') { 
                             $VipreVar = "Vipre is installed, but SBAMSvc is in a disabled state.`nTo enable the service and start it, re-run Get-AVInfo with the 'EnableVipre' parameter."
@@ -322,7 +368,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     }
                     Write-Verbose "Checking if machine can reach intellisecure.myvipre.com"
                     try {
+                        $Pref = $ProgressPreference
+                        $ProgressPreference = 'SilentlyContinue'
                         $WebFilter = (Invoke-WebRequest intellisecure.myvipre.com -UseBasicParsing -ErrorAction Stop -Verbose:$false).content 
+                        $ProgressPreference = $Pref
                         if ($WebFilter -like "*<title>Website Filtered</title>*") {
                             $Blocked = "`nThe machine cannot reach out to Vipre on domain intellisecure.myvipre.com. It may be blocked by a web content filter, or other network issue."
                         }
