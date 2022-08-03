@@ -177,10 +177,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } # if Test-Path
                 } # if $EnableVipreAP
                 if ($RenameDefsFolder) {
+                    Write-Verbose "Checking for presence of the definitions folder"
                     if (!(Test-Path 'C:\Program Files*\VIPRE Business Agent\Definitions')) {
                         Write-Warning "Cannot rename definitions folder. Definitions folder is not present."
                     }
                     else {
+                        Write-Verbose "Checking the state of the Vipre service"
                         if ((Get-Service SBAMSvc).Status -eq 'Stopped') {
                             Rename-Item -Path 'C:\Program Files (x86)\VIPRE Business Agent\Definitions\' -NewName "Definitions.old$(Get-Random)"
                         }
@@ -202,21 +204,28 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             'Vipre_Install' {
                 $Answer = Read-Host "Would you like to download the Vipre installer to the machine? (Y/N)"
                 if ($Answer -eq 'Y') {
-                    Write-Host -ForegroundColor Green "Downloading Vipre installer from LTShare. Please wait.."
-                    # To account for Windows 7 machines I do not use the Invoke-WebRequest or Invoke-RestMethod cmdlets for downloading the installer
-                    (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/vipre_agent_intellisecure_12.3.8160.msi", "C:\Windows\Temp\VipreInstaller.msi")
-                    Write-Host -ForegroundColor Green "Download complete (version 12.3.8160).`nInstaller saved to 'C:\Windows\Temp\VipreInstaller.msi'."
+                    Write-Verbose "Checking for presence of Vipre installer on the machine"
+                    if ((Test-Path 'C:\Windows\Temp\VipreInstaller.msi')) {
+                        Write-Host -ForegroundColor Green "The Vipre installer is already present on the machine, at 'C:\Windows\Temp\VipreInstaller.msi'"
+                    } # if Test-Path
+                    else {
+                        Write-Host -ForegroundColor Green "Downloading Vipre installer from LTShare. Please wait.."
+                        # To account for Windows 7 machines I do not use the Invoke-WebRequest or Invoke-RestMethod cmdlets for downloading the installer
+                        (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/vipre_agent_intellisecure_12.3.8160.msi", "C:\Windows\Temp\VipreInstaller.msi")
+                        Write-Host -ForegroundColor Green "Download complete (version 12.3.8160).`nInstaller saved to 'C:\Windows\Temp\VipreInstaller.msi'."
+                    } # if !Test-Path
                     $Answer1 = Read-Host "Run the installer? (Y/N)"
                     if ($Answer1 -eq 'Y') {
+                        Write-Verbose "Running the installer"
                         & "C:\Windows\Temp\VipreInstaller.msi"
                     }
                     elseif ($Answer1 -eq 'N') {
                         Write-Host -ForegroundColor Green "Installer will NOT be run.`nExiting script."
                     }
-                }
+                } # if $Answer -eq 'Y'
                 elseif ($Answer -eq 'N') {
                     Write-Host -ForegroundColor Green "Cancelling the installer download.`nExiting the script."  
-                } 
+                } # if $Answer -eq 'N'
             } # if ParameterSet 'Vipre_Install'
             'Symantec' {
                 if (Test-Path 'C:\Windows\Temp\CleanWipe') {
@@ -225,7 +234,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
                 elseif (Test-Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*') {
                     # if SC was used to transfer the utility to the machine, it's found at this location, 
-                    # and since the utility cannot typically be run from where ScreenConnect drops it, move it is nec.
+                    # and since the utility cannot typically be run from where ScreenConnect drops it, moving it is nec.
                     Write-Verbose "Moving the Symantec CleanWipe tool to C:\Windows\Temp"
                     Move-Item -Path 'C:\Windows\system32\config\systemprofile\Documents\IntelliCare Control\Files\*cleanwipe*' -Destination 'C:\Windows\Temp\CleanWipe'
                     Start-Process 'C:\Windows\Temp\CleanWipe\CleanWipe.exe'
@@ -235,11 +244,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $Answer = Read-Host "Would you like to download the CleanWipe utility? (Y/N)"
                     if ($Answer -eq 'Y') {
                         Write-Verbose 'Downloading the utility'
-                        # To account for Windows 7 machines, I don't use the typical Invoke-WebRequest and Expand-Archive cmdlets below
+                        # To account for Windows 7 machines, I don't use the typical Invoke-WebRequest cmdlet below
                         (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/CleanWipe_14.3_8259.zip", "C:\Windows\Temp\CleanWipe.zip")
                         Write-Verbose "Download complete"
                         Write-Verbose "Expanding the downloaded zip file and running it"
-                        # using the .NET method, to account for Windows 7 machines that don't have the 'Expand-Archive' cmdlet
+                        # Using the .NET method, to account for Windows 7 machines that don't support the 'Expand-Archive' cmdlet
                         Add-Type -AssemblyName "System.IO.Compression.Filesystem"
                         [System.IO.Compression.ZipFile]::ExtractToDirectory("C:\Windows\Temp\CleanWipe.zip", "C:\Windows\Temp\CleanWipe")
                         Start-Process "C:\Windows\Temp\CleanWipe\CleanWipe.exe"
@@ -350,7 +359,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Verbose -Message "Retrieving Vipre info"
                         if (Get-Process SBAM* -ErrorAction Stop) {
                             if (!(Get-Process SBAMTray -ErrorAction SilentlyContinue)) { Start-Process 'C:\Program Files (x86)\Vipre Business Agent\SBAMTray.exe' } # For when SBAMSvc is running, while SBAMTray is not
-                            $VipreVar = Get-Process SBAMtray -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
+                            $VipreVar = Get-Process SBAMSvc -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
                             @{ n = 'Vipre Version'; e = { $_.FileVersion } }, 
                             @{ n = 'Active Protection State'; e = { & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate } }, 
                             @{ n = 'Date & time definitions last updated'; e = { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } }
@@ -462,7 +471,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 elseif (!$DefaultOverride) {
                     Write-Host -ForegroundColor Green "Version of Vipre on the machine, and the date the definitions last updated:"
                     if ($Message) {
-                        Write-Warning "Error retrieving Vipre info.`nError message: $($Message) "
+                        Write-Warning "Error retrieving Vipre info.`nError message:`n$($Message) "
                     }
                     else {
                         Write-Output $VipreVar
