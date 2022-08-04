@@ -120,7 +120,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         # for the TT Symantec ticket only
         [Parameter(parametersetname = 'Symantec',
             Mandatory = $false)]
-        [Switch]$CleanWipe
+        [Switch]$CleanWipe,
+
+        [Parameter(parametersetname = 'Webroot_Action',
+            Mandatory = $false)]
+        [Switch]$WebrootRemoval
     )
 
     BEGIN {
@@ -258,11 +262,26 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } # if 'N'
                 }
             } # if ParameterSet 'Symantec'
+            'Webroot_Action' {
+                Write-Host -ForegroundColor Green "This action will remove Webroot from the Windows Security Center. Webroot will no longer be registered with Windows as an Antivirus. Please confirm Webroot isn't actually running on the machine, otherwise uninstall it properly first."
+                $WRAnswer = Read-Host "Are you sure you want to proceed? (Y/N)"
+                if ($WRAnswer -eq 'Y') {
+                    Write-Verbose "Removing Webroot from the Windows Security Center"
+                    Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object displayname -like *webroot* | ForEach-Object { $_.Delete() }
+                }
+                elseif ($WRAnswer -eq 'N') {
+                    Write-Host -ForegroundColor Green "NOT removing Webroot from the Windows Security Center.`nExiting Script."
+                }
+            } # if ParameterSet 'Webroot'
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast* -Exclude *firewall*, '*AMD Crash*'
         
                 Write-Verbose -Message "Retrieving AVs registered with Windows by querying WMI"
+                # The AV entries registered with Windows are store in registry here: Get-Item 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'
+                # To edit the AVs in Security Center, you can't edit the Registry directly. Instead, you need to use WMI.
+                # For a GUI option use WBEMTEST (https://support.cloudradial.com/hc/en-us/articles/360049084271-Removing-Old-Antivirus-Listings-from-Security-Center)
+                # Or from PowerShell run: Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object displayname -like *<AV_To_Delete>* | ForEach-Object { $_.Delete() }
                 if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
                     # Servers don't have the 'securitycenter2' namespace, hence the need for the ErrorAction below
                     # Instead, you can run the following on servers (for WD): Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus 
