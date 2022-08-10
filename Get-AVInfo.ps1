@@ -277,9 +277,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 Write-Verbose -Message "Retrieving AVs by querying services"
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast* -Exclude *firewall*, '*AMD Crash*'
         
-                Write-Verbose -Message "Retrieving AVs registered with Windows by querying WMI"
-                # The AV entries registered with Windows are store in registry here: Get-Item 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'
-                # To edit the AVs in Security Center, you can't edit the Registry directly. Instead, you need to use WMI.
+                Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
+                # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
+                # You can't edit that part of the Registry directly though; instead you must use WMI.
                 # For a GUI option use WBEMTEST (https://support.cloudradial.com/hc/en-us/articles/360049084271-Removing-Old-Antivirus-Listings-from-Security-Center)
                 # Or from PowerShell run: Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object displayname -like *<AV_To_Delete>* | ForEach-Object { $_.Delete() }
                 if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
@@ -288,7 +288,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $AV = Get-CimInstance antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
                     if (!$AV) {
                         $AV = Get-CimInstance antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
-                    } 
+                    }
                 } # if Get-CimInstance
                 else {
                     $AV = Get-WmiObject antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
@@ -296,6 +296,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $AV = Get-WmiObject antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
                     }
                 } # if !Get-CimInstance
+
+                Write-Verbose "Retrieving AVs by querying the Registry"
+                $RegAV = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'
         
                 if ($Bitdefender) {
                     Write-Verbose -Message "Retrieving Bitdefender info"
@@ -457,14 +460,16 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 Write-Host -ForegroundColor Green "`nAntivirus software present on the machine (pulled from installed services):"
                 Write-Output $Services | Sort-Object DisplayName | Format-Table Status, StartType, Name, DisplayName -AutoSize
 
-                Write-Host -ForegroundColor Green "Antivirus software registered with the Windows Security Center (queried from the SecurityCenter2 namespace using CIM or WMI):"
+                Write-Host -ForegroundColor Green "Antivirus software registered with the Windows Security Center (queried from the SecurityCenter2 namespace using WMI):"
                 if (!$AV) {
                     Write-Warning "Failed to retrieve the Antivirus software from the SecurityCenter2 namespace."
                     Write-Host "`n"
                 }
                 else {
-                    Write-Output $AV | Sort-Object displayname | Format-Table displayName, instanceGuid
+                    Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize
                 }
+                Write-Host -ForegroundColor Green "`nAntivirus software as seen in the Registry:"
+                Write-Output $RegAV | Sort-Object DisplayName | Format-Table DisplayName, State, GUID -AutoSize
 
                 if ($Bitdefender) {
                     Write-Host -ForegroundColor Green "Bitdefender Product and Engine (antimalware signatures) versions:"
