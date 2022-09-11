@@ -63,7 +63,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
     Comments and suggestions welcome!
     =================================
 #>
-    [CmdletBinding(DefaultParameterSetName = 'Vipre')]
+    [CmdletBinding(#SupportsShouldProcess = $True,
+        #ConfirmImpact = 'Medium',
+        DefaultParameterSetName = 'Vipre')]
     param (
         [Parameter(parametersetname = 'Bitdefender',
             Mandatory = $false)]
@@ -102,6 +104,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Vipre_Install',
             Mandatory = $false)]
         [Switch]$InstallVipre,
+
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$EnableWDRegKey,
+
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$EnableWD,
 
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
@@ -197,10 +207,18 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 } # if $RenameDefsFolder
             } # if ParameterSet 'Vipre_Action'
             'WindowsDefender_Action' {
-                Write-Verbose "Updating Windows Defender definitions"
-                # Can also use 'Update-MpSignature', but it returns less verbose output than the below command
-                & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -signatureupdate
-            }
+                if ($EnableWDRegKey) {
+                    Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0
+                }
+                if ($EnableWD) {
+                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -wdenable
+                }
+                if ($UpdateWDDefs) {
+                    Write-Verbose "Updating Windows Defender definitions"
+                    # Can also use 'Update-MpSignature', but it returns less verbose output than the below command
+                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -signatureupdate
+                }
+            } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
                 & "C:\Program Files\Bitdefender\Endpoint Security\product.console.exe" /c StartUpdate
@@ -263,7 +281,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
             } # if ParameterSet 'Symantec'
             'Webroot_Action' {
-                Write-Host -ForegroundColor Green "This action will remove Webroot from the Windows Security Center. Webroot will no longer be registered with Windows as an Antivirus. Please confirm Webroot isn't actually running on the machine, otherwise uninstall it properly first."
+                Write-Host -ForegroundColor Green "This action will remove Webroot from the Windows Security Center. Webroot will no longer be registered with Windows as an Antivirus. Only do this if Webroot isn't actually running on the machine, otherwise uninstall it properly first."
                 $WRAnswer = Read-Host "Are you sure you want to proceed? (Y/N)"
                 if ($WRAnswer -eq 'Y') {
                     Write-Verbose "Removing Webroot from the Windows Security Center"
@@ -275,7 +293,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             } # if ParameterSet 'Webroot'
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast* -Exclude *firewall*, '*AMD Crash*'
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -298,7 +316,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 } # if !Get-CimInstance
 
                 Write-Verbose "Retrieving AVs by querying the Registry"
-                $RegAV = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'
+                $RegAV = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*' -ErrorAction SilentlyContinue
         
                 if ($Bitdefender) {
                     Write-Verbose -Message "Retrieving Bitdefender info"
@@ -381,10 +399,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Verbose -Message "Retrieving Vipre info"
                         if (Get-Process SBAM* -ErrorAction Stop) {
                             if (!(Get-Process SBAMTray -ErrorAction SilentlyContinue)) { Start-Process 'C:\Program Files (x86)\Vipre Business Agent\SBAMTray.exe' } # For when SBAMSvc is running, while SBAMTray is not
-                            $VipreVar = Get-Process SBAMSvc -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
+                            $VipreVar = Get-Process SBAMTray -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
                             @{ n = 'Vipre Version'; e = { $_.FileVersion } }, 
                             @{ n = 'Active Protection State'; e = { & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate } }, 
-                            @{ n = 'Date & time definitions last updated'; e = { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } }
+                            @{ n = 'Date/Time definitions last updated'; e = { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } }
                             #[datetime](($var -split '- ')[1])
                         }
                         elseif ((Get-Service SBAMsvc -ErrorAction SilentlyContinue).StartType -eq 'Disabled') { 
@@ -466,10 +484,16 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host "`n"
                 }
                 else {
-                    Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize
+                    Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize -Wrap
                 }
                 Write-Host -ForegroundColor Green "`nAntivirus software as seen in the Registry:"
-                Write-Output $RegAV | Sort-Object DisplayName | Format-Table DisplayName, State, GUID -AutoSize
+                if (!$RegAV) {
+                    Write-Warning "Failed to retrieve Antivirus software from Registry."
+                    Write-Host "`n"
+                }
+                else {
+                    Write-Output $RegAV | Sort-Object DisplayName | Format-Table DisplayName, State, GUID -AutoSize -Wrap
+                }
 
                 if ($Bitdefender) {
                     Write-Host -ForegroundColor Green "Bitdefender Product and Engine (antimalware signatures) versions:"
@@ -510,8 +534,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if (!$NoMachineInfo) { 
                     Write-Host -ForegroundColor Green "`nHardware, OS and User info:"
                     if ($Obj) {
-                        Write-Output $Obj | Format-List 
+                        Write-Output $Obj | Format-List
                         # Format-List is needed for the last verbose message to appear in the right place on screen
+
+                        if ($Obj.'SysDriveFreeSpace (GB)' -lt 1) {
+                            Write-Warning "<<< Free space on the system drive is very low. >>>"
+                        }
                     }
                     else {
                         Write-Warning "Get-CimInstance is not supported on this machine.`nOS info check skipped."
