@@ -439,6 +439,18 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     }
                 }
 
+                Write-Verbose "Testing for ARM Processor"
+                if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+                    if ((Get-CimInstance Win32_Processor -Verbose:$false).Caption -like "*arm*") {
+                        $ARM = "ARM processor detected. Vipre is not compatible with this machine."
+                    } 
+                } # if Get-Command
+
+                Write-Verbose "Testing for Vipre version 12.0 "
+                if ( ( (Get-Process SBAM* | Select-Object -First 1).FileVersion -like "12.0*" ) -and ( (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate) -eq "Disabled" ) ) {
+                    $Buggy_Version = "Vipre 12.0.x is installed. There is a bug in version 12.0 that prevents Vipre Active Protection from turning on. If you can't enable Active Protection, install Vipre version 12.3 or higher and try again."
+                } # if Get-Process
+
                 if (!$NoMachineInfo -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
                     Write-Verbose -Message "Retrieving OS info" 
                     # Verbose messages from Get-CimInstance are suppressed, even if the -Verbose parameter is specified when running the function
@@ -525,6 +537,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Output $VipreVar
                     }
                     Write-Host -ForegroundColor Cyan "$($Blocked)"  
+                }
+
+                if ($ARM) {
+                    Write-Warning $ARM
+                }
+
+                if ($Buggy_Version) {
+                    Write-Warning $Buggy_Version
                 }
             
                 if ($SophosTPEnabled -eq $true) {
