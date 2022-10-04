@@ -32,11 +32,13 @@ In addition to retrieving information pertaining to the various antivirus progra
     - Enable Vipre Active Protection if it is disabled
     - Rename the definitions folder (for when definitions are corrupted)
     - Test if the machine is being blocked from reaching the Vipre portal (due to a web content filter for ex.)
-    - Download and install Vipre
+    - Download (transfer from a share) and install Vipre
+    - Test for Vipre version 12.0 (buggy version)
+    - Test for (incompatible) ARM processors
 - **Sophos**
     - Test if Sophos Tamper Protection is enabled 
 - **Symantec**
-    - Download and run the CleanWipe utility
+    - Download (transfer from a share) and run the CleanWipe utility
 - **Return information about the Hardware, Operating System and User**
 
 ### Help
