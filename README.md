@@ -19,7 +19,13 @@ Feel free to message me with any questions or suggestions.
 
 ---
 
-In addition to retrieving information pertaining to the various antivirus programs installed on a machine, this script can also perform the following useful actions:
+This script retrieves information pertaining to the various antivirus programs installed on a machine:
+- It returns a list of AVs installed on a machine pulled from installed services (using a static list)
+- It returns a list of AVs on a machine registered in the Windows Security Center
+- It returns a list of AVs installed on a machine as seen in the AV part of the Registry
+
+
+This script can also perform the following useful actions:
 - **Bitdefender**
     - Update Bitdefender definitions
 - **Windows Defender**
