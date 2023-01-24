@@ -105,6 +105,18 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$InstallVipre,
 
+        [Parameter(parametersetname = 'Vipre_Uninstall',
+            Mandatory = $false)]
+        [Switch]$UninstallVipre,
+        
+        [Parameter(parametersetname = 'Vipre_Action',
+            Mandatory = $false)]
+        [Switch]$VipreUpdateCheck,
+
+        [Parameter(parametersetname = 'Vipre_Action',
+            Mandatory = $false)]
+        [Switch]$AgentShutdownCheck,
+        
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
         [Switch]$EnableWDRegKey,
@@ -116,6 +128,18 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateWDDefs,
+
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$ResetWDDefs,
+
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$DisableUILockdown,
+
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$EnableUILockdown,
 
         [Parameter(ParameterSetName = 'Bitdefender_Action',
             Mandatory = $false)]
@@ -132,15 +156,16 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$CleanWipe,
 
-        [Parameter(parametersetname = 'Webroot_Action',
+        [Parameter(parametersetname = 'WSC_Action',
             Mandatory = $false)]
-        [Switch]$WebrootRemoval
+        [Switch]$UnregisterAV
     )
 
     BEGIN {
         Write-Verbose "[BEGIN  ] Starting: $($MyInvocation.MyCommand)"
     }
     PROCESS {
+        Write-Debug "Started PROCESS block"
         switch ($PSCmdlet.ParameterSetName) {
             'Vipre_Action' { 
                 if ($EnableVipre) {
@@ -190,7 +215,33 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         }
                     } # if Test-Path
                 } # if $EnableVipreAP
+                # Run the following parameter after sending an agent shutdown command from the Vipre portal, to see when Vipre is actually stopped 
+                if ($AgentShutdownCheck) {
+                    if (!(Get-Service SBAMSvc -ErrorAction SilentlyContinue)) {
+                        Write-Warning "No Vipre service detected.`nExiting"
+                    }
+                    else {
+                        for ($i = 0; $i -lt 5; $i++) {
+                            Get-Service SBAMSvc; Start-Sleep -Seconds 2
+                        } # for loop
+                    }
+                } # if $AgentShutdownCheck
+                if ($VipreUpdateCheck) {
+                    if ( !((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*") ) {
+                        Write-Host "Vipre definitions are not being updated at the moment."                        
+                    }
+                    else {
+                        While ((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*" ) {
+                            Write-Host -ForegroundColor Green "Vipre definitions are updating. Please wait.."; Start-Sleep -Seconds 2
+                        }
+                    }
+                } # if $VipreUpdateCheck
                 if ($RenameDefsFolder) {
+                    # Checking for admin rights
+                    if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+                        Write-Warning "Renaming the definitions folder must be done from an admin shell. Please launch an admin shell and try again."
+                        Break
+                    }
                     Write-Verbose "Checking for presence of the definitions folder"
                     if (!(Test-Path 'C:\Program Files*\VIPRE Business Agent\Definitions')) {
                         Write-Warning "Cannot rename definitions folder. Definitions folder is not present."
@@ -198,6 +249,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         Write-Verbose "Checking the state of the Vipre service"
                         if ((Get-Service SBAMSvc).Status -eq 'Stopped') {
+                            Write-Host -ForegroundColor Green "Renaming Vipre definitions folder"
                             Rename-Item -Path 'C:\Program Files (x86)\VIPRE Business Agent\Definitions\' -NewName "Definitions.old$(Get-Random)"
                         }
                         else {
@@ -208,15 +260,32 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             } # if ParameterSet 'Vipre_Action'
             'WindowsDefender_Action' {
                 if ($EnableWDRegKey) {
-                    Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0
+                    Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0 -ErrorAction SilentlyContinue
+                    Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0 -ErrorAction SilentlyContinue
+                    Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiVirus' -Value 0 -ErrorAction SilentlyContinue
                 }
                 if ($EnableWD) {
                     & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -wdenable
+                    Start-Service WinDefend -ErrorAction SilentlyContinue
                 }
                 if ($UpdateWDDefs) {
                     Write-Verbose "Updating Windows Defender definitions"
                     # Can also use 'Update-MpSignature', but it returns less verbose output than the below command
-                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -signatureupdate
+                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -SignatureUpdate
+                }
+                if ($ResetWDDefs) {
+                    Write-Verbose "Removing the current definitions and reloading them"
+                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -RemoveDefinitions -All
+                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -SignatureUpdate
+                }
+                if ($EnableUILockdown) {
+                    Write-Verbose "Hiding the Windows Defender UI"
+                    Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -Name 'UILockdown' -Value 1 -ErrorAction SilentlyContinue
+                }
+                if ($DisableUILockdown) {
+                    Write-Verbose "Unhiding the Windows Defender UI"
+                    Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -Name 'UILockdown' -Value 0 -ErrorAction SilentlyContinue
+                    Write-Host "Keep in mind the 'Notification_Supress' Registry key may still be enabled"
                 }
             } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
@@ -234,7 +303,13 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Host -ForegroundColor Green "Downloading Vipre installer from LTShare. Please wait.."
                         # To account for Windows 7 machines I do not use the Invoke-WebRequest or Invoke-RestMethod cmdlets for downloading the installer
                         (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/vipre_agent_intellisecure_12.3.8160.msi", "C:\Windows\Temp\VipreInstaller.msi")
-                        Write-Host -ForegroundColor Green "Download complete (version 12.3.8160).`nInstaller saved to 'C:\Windows\Temp\VipreInstaller.msi'."
+                        if (Test-Path 'C:\Windows\Temp\VipreInstaller.msi') { 
+                            Write-Host -ForegroundColor Green "Download complete (version 12.3.8160).`nInstaller saved to 'C:\Windows\Temp\VipreInstaller.msi'." 
+                        }
+                        #else {
+                        #    Write-Warning "Download failed. Exiting script."
+                        #    exit
+                        #}
                     } # if !Test-Path
                     $Answer1 = Read-Host "Run the installer? (Y/N)"
                     if ($Answer1 -eq 'Y') {
@@ -249,8 +324,31 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "Cancelling the installer download.`nExiting the script."  
                 } # if $Answer -eq 'N'
             } # if ParameterSet 'Vipre_Install'
+            'Vipre_Uninstall' {
+                if ($UninstallVipre) {
+                    $App = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object displayname -like *vipre*
+                    foreach ($A in $App) {
+                        $Answer = Read-Host "Are you sure you want to uninstall $($A.DisplayName)? (Y/N)"
+                        if ($Answer -eq 'Y') {
+                            Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
+                            $UninstallString = $A.UninstallString
+                            if ($UninstallString -like '*/I*') {
+                                $UninstallCommand = $UninstallString.Replace('/I', '/X')
+                            }
+                            else {
+                                $UninstallCommand = $UninstallString
+                            }
+                            Write-Verbose "Uninstalling $A.DisplayName"
+                            cmd.exe /c $($uninstallcommand)
+                        } # if $Answer -eq 'Y'
+                        else {
+                            Write-Host "Cancelling uninstall of $($A.DisplayName)."
+                        } # else $Answer -eq 'N'
+                    } # foreach $A in $App 
+                } # if $UninstallVipre
+            } # if ParameterSet 'Vipre_Uninstall'
             'Symantec' {
-                if (Test-Path 'C:\Windows\Temp\CleanWipe') {
+                if ( (Test-Path 'C:\Windows\Temp\CleanWipe') -and ([version](Get-ChildItem 'C:\Windows\Temp\CleanWipe\CleanWipe.exe').versioninfo.fileversion -eq 8259) ) {
                     Write-Verbose "The CleanWipe utility is present at 'C:\Windows\Temp\CleanWipe'.`nRunning the utility."
                     Start-Process "C:\Windows\Temp\CleanWipe\CleanWipe.exe"
                 }
@@ -262,12 +360,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Start-Process 'C:\Windows\Temp\CleanWipe\CleanWipe.exe'
                 }
                 else {
-                    Write-Host "The CleanWipe folder cannot be found."
-                    $Answer = Read-Host "Would you like to download the CleanWipe utility? (Y/N)"
+                    Write-Host "The CleanWipe folder cannot be found, or an older version of the utility is present on the machine."
+                    $Answer = Read-Host "Would you like to download the latest version of the CleanWipe utility? (Y/N)"
                     if ($Answer -eq 'Y') {
-                        Write-Verbose 'Downloading the utility'
+                        # remove the old version if present, otherwise expand-archive will not overwite existing file
+                        if ( Test-Path 'C:\Windows\Temp\CleanWipe*' ) { Get-ChildItem 'C:\Windows\Temp\CleanWipe*' | Remove-Item -Recurse -Force -Confirm:$false }
+                        Write-Verbose 'Downloading the CleanWipe utility version 14.3_8259'
                         # To account for Windows 7 machines, I don't use the typical Invoke-WebRequest cmdlet below
-                        (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/CleanWipe_14.3_8259.zip", "C:\Windows\Temp\CleanWipe.zip")
+                        (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/1667853049028__CleanWipe_14.3.9205.6000.zip", "C:\Windows\Temp\CleanWipe.zip")
                         Write-Verbose "Download complete"
                         Write-Verbose "Expanding the downloaded zip file and running it"
                         # Using the .NET method, to account for Windows 7 machines that don't support the 'Expand-Archive' cmdlet
@@ -280,40 +380,60 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } # if 'N'
                 }
             } # if ParameterSet 'Symantec'
-            'Webroot_Action' {
-                Write-Host -ForegroundColor Green "This action will remove Webroot from the Windows Security Center. Webroot will no longer be registered with Windows as an Antivirus. Only do this if Webroot isn't actually running on the machine, otherwise uninstall it properly first."
-                $WRAnswer = Read-Host "Are you sure you want to proceed? (Y/N)"
-                if ($WRAnswer -eq 'Y') {
-                    Write-Verbose "Removing Webroot from the Windows Security Center"
-                    Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object displayname -like *webroot* | ForEach-Object { $_.Delete() }
-                }
-                elseif ($WRAnswer -eq 'N') {
-                    Write-Host -ForegroundColor Green "NOT removing Webroot from the Windows Security Center.`nExiting Script."
-                }
-            } # if ParameterSet 'Webroot'
+            'WSC_Action' {
+                Write-Host -ForegroundColor Green "The folowing AVs are registered with the Windows Security Center:"
+                $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
+                $ASP = (Get-WmiObject -Namespace root\securitycenter2 -Class AntispywareProduct).DisplayName
+                $AVP
+                $ASP
+                Write-Debug "AVs in the Windows Security Center are: $AVP / $ASP"
+                [String[]]$AV_List = Read-Host "`nType the names of the AVs to unregister, exactly as they appear in the above list (seperate multiple entries with commas and use quotes around names that contain spaces)"
+                $AV_List = $AV_List.Split(',')
+                $AV_List | ForEach-Object {
+                    #if ( ($_ -notin $AVP) -and ($_ -notin $ASP) ) {
+                    #    Write-Host -ForegroundColor Green "$_ is not in the list of AV(s) above. Skipping $_."
+                    #    continue
+                    #}
+                    Write-Host -ForegroundColor Green "This action will remove $_ from the Windows Security Center. $_ will no longer be registered as an Antivirus with Windows. Proceed only if $_ isn't actually installed on the machine, otherwise uninstall it properly first."
+                    $AV_Answer = Read-Host "Would you like to proceed? (Y/N)"
+                    if ($AV_Answer -eq 'Y') {
+                        Write-Verbose "Removing $_ from the Windows Security Center"
+                        Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname=$_" | Remove-WmiObject # ForEach-Object { $_.Delete() }
+                        Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname=$_" | Remove-WmiObject # ForEach-Object { $_.Delete() }
+                    } # answer = Y
+                    elseif ($AV_Answer -eq 'N') {
+                        Write-Host -ForegroundColor Green "NOT unregistering $_ from the Windows Security Center."
+                    } # answer = N
+                } # foreach-object
+                Write-Host "`nExiting Script"
+            } # if ParameterSet 'WSC_Action'
+        
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*'
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
-                # You can't edit that part of the Registry directly though; instead you must use WMI.
+                # You can't edit that part of the Registry directly. One way is to interface with that is by using WMI.
                 # For a GUI option use WBEMTEST (https://support.cloudradial.com/hc/en-us/articles/360049084271-Removing-Old-Antivirus-Listings-from-Security-Center)
                 # Or from PowerShell run: Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object displayname -like *<AV_To_Delete>* | ForEach-Object { $_.Delete() }
-                if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
-                    # Servers don't have the 'securitycenter2' namespace, hence the need for the ErrorAction below
-                    # Instead, you can run the following on servers (for WD): Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus 
-                    $AV = Get-CimInstance antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
-                    if (!$AV) {
-                        $AV = Get-CimInstance antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
-                    }
-                } # if Get-CimInstance
+                if ( (Get-WmiObject Win32_OperatingSystem).producttype -ne 1 ) {
+                    # Servers don't have the 'securitycenter2' namespace
+                    $Server = $true
+                    $AV = Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus
+                } # if server OS
                 else {
-                    $AV = Get-WmiObject antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
-                    if (!$AV) {
-                        $AV = Get-WmiObject antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
-                    }
-                } # if !Get-CimInstance
+                    if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+                        $AV_antivirus = Get-CimInstance antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
+                        $AV_antispyware = Get-CimInstance antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$false
+                        $AV = $AV_antivirus , $AV_antispyware
+                    } # if Get-CimInstance
+                    else {
+                        $AV_antivirus = Get-WmiObject antivirusproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
+                        $AV_antispyware = Get-WmiObject antispywareproduct -Namespace root\securitycenter2 -ErrorAction SilentlyContinue -Verbose:$False
+                        $AV = $AV_antivirus , $AV_antispyware
+                    } # if !Get-CimInstance
+                } # if non-server OS
 
                 Write-Verbose "Retrieving AVs by querying the Registry"
                 $RegAV = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*' -ErrorAction SilentlyContinue
@@ -383,6 +503,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             'Signatures version'               = $WDStatus.AntispywareSignatureVersion
                             'Version created on'               = $WDStatus.AntispywareSignatureLastUpdated
                             'Last update in days (0 is today)' = $WDStatus.AntispywareSignatureAge
+                            # the below boolean value is only accurate if wuaserv is running, otherwise it will show false even if signatures are out of date
                             'Signatures out of date'           = $WDStatus.DefenderSignaturesOutOfDate
                         }
                         $WDObj = New-Object -TypeName psobject -Property $Props
@@ -390,19 +511,58 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     catch {
                         $WDMessage = $($Error[0])
                     }
+
+                    Write-Verbose 'Checking WD UILockdown status'
+                    $UIStatus = (Get-ItemProperty 'hklm:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -ErrorAction SilentlyContinue).UILockdown
+
                     Write-Verbose "Checking value of Windows Defender Registry key"
-                    $RegKey = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue
-                    # 'C:\Program Files\Windows Defender\MpCmdRun.exe' -wdenable ?
+                    $RegKey = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue).DisableAntiSpyware,
+                    (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue).DisableAntiVirus,
+                    (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiVirus' -ErrorAction SilentlyContinue).DisableAntiVirus
+
+                    if ( ($RegKey -contains 1) -and ($WDStatus.AntispywareSignatureAge -gt 1) ) {
+                        if ( (Get-Service wuauserv).Status -eq 'Stopped') {
+                            $WU = Read-Host "Windows Defender signatures out of date. The Windows Update service is not running.`nStart the service? (Y/N)"
+                            if ($WU -eq 'Y') {
+                                try {
+                                    Write-Verbose "Attempting to start the wuauserv service"
+                                    Start-Service wuauserv -ErrorAction Stop
+                                }
+                                catch {
+                                    Write-Verbose "Failed to start the service"
+                                    Write-Verbose "Attempting to disable and then re-enable the wuauserv service"
+                                    Set-Service wuauserv -StartupType Disabled
+                                    Set-Service wuauserv -StartupType Automatic -Status Running
+                                }
+                                if ( (Get-Service wuauserv).Status -eq 'Running' ) {
+                                    Write-Host "wuauserv service successfully started`nUpdating Windows Defender signatures.."
+                                    & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -signatureupdate
+                                }
+                                else {
+                                    Write-Warning "Could not successfully start the wuauserv service. Please look into this."
+                                }
+                            } # if answer 'Y'
+                            elseif ($WU -eq 'N') {
+                                Write-Host -ForegroundColor Green "NOT starting service wuauserv"
+                            } # if answer 'N'
+                        } # if wuauserv is stopped
+                    } # if signatures out of date more than 1 day
                 } # elseif $WindowsDefender
                 elseif (!$DefaultOverride -or $Vipre) {
                     try {
                         Write-Verbose -Message "Retrieving Vipre info"
                         if (Get-Process SBAM* -ErrorAction Stop) {
                             if (!(Get-Process SBAMTray -ErrorAction SilentlyContinue)) { Start-Process 'C:\Program Files (x86)\Vipre Business Agent\SBAMTray.exe' } # For when SBAMSvc is running, while SBAMTray is not
+                            # check that SBAMCommandLineScanner is working before AP check and if not output error message
+                            $SBAMAPState = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate
+                            if ($SBAMAPState[0] -eq "ERROR:Couldn't access service interface") { $SBAMMessage = "SBAMCommandLineScanner is not working" } else { $SBAMMessage = $SBAMAPState }
+                            # check that SBAMCommandLineScanner is working before Defs check and if not output error message
+                            $SBAMDefs = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion
+                            if ($SBAMDefs[0] -eq "ERROR:Couldn't access threat definition interface") { $SBAMMessage1 = "SBAMCommandLineScanner is not working" }
                             $VipreVar = Get-Process SBAMTray -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
-                            @{ n = 'Vipre Version'; e = { $_.FileVersion } }, 
-                            @{ n = 'Active Protection State'; e = { & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate } }, 
-                            @{ n = 'Date/Time definitions last updated'; e = { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } }
+                            @{ n = 'Vipre Version'; e = { $_.FileVersion } },
+                            @{ n = 'Active Protection State'; e = { $SBAMMessage } }, 
+                            @{ n = 'Date/Time definitions last updated'; e = { if ($SBAMMessage1) { $SBAMMessage1 } else { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } } }
                             #[datetime](($var -split '- ')[1])
                         }
                         elseif ((Get-Service SBAMsvc -ErrorAction SilentlyContinue).StartType -eq 'Disabled') { 
@@ -415,6 +575,13 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     catch {
                         $Message = $($Error[0])
                     }
+                    
+                    # check for AP in disabled state while defs download and update for the first time after a Vipre install
+                    if ( ($SBAMAPState -eq 'Disabled') -and ((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*" )) {
+                        $VipreUpdateStatus = 1
+                        $DefsMessage = "Vipre Active protection is disabled. Vipre definitions are currently updating.`nIf you just installed Vipre please wait for the definitions update to complete and then check on the Active Protection again."
+                    }
+
                     Write-Verbose "Checking if machine can reach intellisecure.myvipre.com"
                     try {
                         $Pref = $ProgressPreference
@@ -446,10 +613,17 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } 
                 } # if Get-Command
 
-                Write-Verbose "Testing for Vipre version 12.0 "
-                if ( ( (Get-Process SBAM* | Select-Object -First 1).FileVersion -like "12.0*" ) -and ( (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate) -eq "Disabled" ) ) {
-                    $Buggy_Version = "Vipre 12.0.x is installed. There is a bug in version 12.0 that prevents Vipre Active Protection from turning on. If you can't enable Active Protection, install Vipre version 12.3 or higher and try again."
-                } # if Get-Process
+                if (!$WindowsDefender -and !$Bitdefender) {    
+                    Write-Verbose "Testing for Vipre version 12.0 "
+                    if ( ( (Get-Process SBAM* | Select-Object -First 1).FileVersion -like "12.0*" ) -and ( (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate) -eq "Disabled" ) ) {
+                        $Buggy_Version = "Vipre 12.0.x is installed. There is a bug in version 12.0 that prevents Vipre Active Protection from turning on. If you can't enable Active Protection, install Vipre version 12.3 or higher and try again."
+                    } # if Get-Process
+                }
+            
+                Write-Verbose "Testing for the presence of the Techloq content filter"
+                if (Get-Process WindowsFilterAgentWPFClient -ErrorAction SilentlyContinue | Where-Object Company -eq Techloq) {
+                    $Techloq = "The Techloq content filter is installed on this machine."
+                }
 
                 if (!$NoMachineInfo -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
                     Write-Verbose -Message "Retrieving OS info" 
@@ -491,16 +665,32 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 Write-Output $Services | Sort-Object DisplayName | Format-Table Status, StartType, Name, DisplayName -AutoSize
 
                 Write-Host -ForegroundColor Green "Antivirus software registered with the Windows Security Center (queried from the SecurityCenter2 namespace using WMI):"
-                if (!$AV) {
+                # "if ($AV.Count -eq 0)"" as opposed to "if (!$AV)" is to account for $AV existing but as an ampty array
+                if ( ($AV | Measure-Object).Count -eq 0 ) {
                     Write-Warning "Failed to retrieve the Antivirus software from the SecurityCenter2 namespace."
                     Write-Host "`n"
                 }
                 else {
-                    Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize -Wrap
-                }
+                    if ($Server) {
+                        Write-Host -ForegroundColor Yellow "This machine is running server OS. The Windows Security Center is not relevant to Windows Server operating systems."
+                        $AV | Format-List AMRunningMode, *enabled*
+                    }
+                    else {
+                        Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize -Wrap
+                    } # if -not $Server
+                } # else $AV
+
                 Write-Host -ForegroundColor Green "`nAntivirus software as seen in the Registry:"
                 if (!$RegAV) {
-                    Write-Warning "Failed to retrieve Antivirus software from Registry."
+                    if ( (Get-WmiObject Win32_OperatingSystem).Caption -like '*7*' ) {
+                        Write-Warning "This machine is running Windows 7.`nAntivirus info is not logged in the usual place in the Registry."
+                    }
+                    elseif ($Server) {
+                        Write-Host -ForegroundColor Yellow "This machine is running server OS. Antivirus programs aren't registered in the typical place in Registry on servers."
+                    }
+                    else {
+                        Write-Warning "Failed to retrieve Antivirus software from Registry."
+                    }
                     Write-Host "`n"
                 }
                 else {
@@ -522,10 +712,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Host -ForegroundColor Green "Windows Defender Signatures:"
                         $WDObj | Format-Table
                     }
-                    if ($RegKey -and (($RegKey).DisableAntiSpyware -eq '1')) {
+                    if ($UIStatus -eq 1) {
+                        Write-Host -ForegroundColor Cyan "Windows Defender UI is locked down"
+                    }
+                    if ( $RegKey -and ($RegKey -contains 1) ) {
                         Write-Host -ForegroundColor Green "Windows Defender Registry key:"
-                        "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, set the value back to '0', or simply delete the key."
-                        "Note: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update.`nTo test, run 'gpupdate /force' afer the Registry change.`n"
+                        # "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, either set the value back to '0', delete the key, or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        "Windows Defender is disabled in the Registry. `nTo re-enable, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        "`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
                     }
                 } # elseif $WindowsDefender
                 elseif (!$DefaultOverride) {
@@ -535,6 +729,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     }
                     else {
                         Write-Output $VipreVar
+                        if ($VipreUpdateStatus -eq 1) {
+                            Write-Host -ForegroundColor Cyan "$($DefsMessage)"
+                        }
                     }
                     Write-Host -ForegroundColor Cyan "$($Blocked)"  
                 }
@@ -550,7 +747,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if ($SophosTPEnabled -eq $true) {
                     Write-Warning "Sophos Tamper Protection is enabled on this machine."
                 }
-            
+
                 if (!$NoMachineInfo) { 
                     Write-Host -ForegroundColor Green "`nHardware, OS and User info:"
                     if ($Obj) {
@@ -564,6 +761,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         Write-Warning "Get-CimInstance is not supported on this machine.`nOS info check skipped."
                     } # if $Obj
+
+                    if ($Techloq) {
+                        Write-Host -ForegroundColor Green $Techloq
+                    }
                 } # if !$NoMachineInfo
             } # Default
         } # switch
