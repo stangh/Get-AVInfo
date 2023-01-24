@@ -24,8 +24,13 @@ In addition to retrieving information pertaining to the various antivirus progra
     - Update Bitdefender definitions
 - **Windows Defender**
     - Update Windows Defender definitions
+    - Reset Windows Defender definitions
     - Return which components of Windows Defender are enabled and which are not
     - Test if Windows Defender is disabled in the Registry
+    - Enable Windows Defender in the Registry
+    - Enable Windows Defender if it is disabled
+    - Disable UI lockdown
+    - Enable UI lockdown
 - **Vipre**
     - Update Vipre definitions
     - Enable Vipre when it is disabled
@@ -35,10 +40,15 @@ In addition to retrieving information pertaining to the various antivirus progra
     - Download (transfer from a share) and install Vipre
     - Test for Vipre version 12.0 (buggy version)
     - Test for (incompatible) ARM processors
+    - Run an ongoing test to check if defs are curently updating and let you know when they're finished updating
+    - Run an ongoing test to check if an agent is shut down and let you know once it's shutdown (for when an agent shutdown command is initiated from the Vipre portal)
+    - Uninstall Vipre
 - **Sophos**
-    - Test if Sophos Tamper Protection is enabled 
+    - Test if Sophos Tamper Protection is enabled
 - **Symantec**
     - Download (transfer from a share) and run the CleanWipe utility
+- **Unregister AV**
+    - Unregister an AV from the Windows Security Center
 - **Return information about the Hardware, Operating System and User**
 
 ### Help
