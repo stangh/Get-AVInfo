@@ -397,9 +397,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "This action will remove $_ from the Windows Security Center. $_ will no longer be registered as an Antivirus with Windows. Proceed only if $_ isn't actually installed on the machine, otherwise uninstall it properly first."
                     $AV_Answer = Read-Host "Would you like to proceed? (Y/N)"
                     if ($AV_Answer -eq 'Y') {
-                        Write-Verbose "Removing $_ from the Windows Security Center"
+                        Write-Host "Removing $_ from the Windows Security Center"
                         Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname=$_" | Remove-WmiObject # ForEach-Object { $_.Delete() }
                         Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname=$_" | Remove-WmiObject # ForEach-Object { $_.Delete() }
+                        $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
+                        $ASP = (Get-WmiObject -Namespace root\securitycenter2 -Class AntispywareProduct).DisplayName
+                        Write-Host -ForegroundColor Green "`nAVs still registered with the Windows Security Center:"
+                        $AVP
+                        $ASP
                     } # answer = Y
                     elseif ($AV_Answer -eq 'N') {
                         Write-Host -ForegroundColor Green "NOT unregistering $_ from the Windows Security Center."
@@ -480,8 +485,56 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         $BDVar = "Bitdefender is either not installed or else not running."
                     } # else $BDProc
-                } # if BitDefender
-                elseif ($WindowsDefender) {
+                } # if $BitDefender
+                if ($Vipre) {
+                    try {
+                        Write-Verbose -Message "Retrieving Vipre info"
+                        if (Get-Process SBAM* -ErrorAction Stop) {
+                            if (!(Get-Process SBAMTray -ErrorAction SilentlyContinue)) { Start-Process 'C:\Program Files (x86)\Vipre Business Agent\SBAMTray.exe' } # For when SBAMSvc is running, while SBAMTray is not
+                            # check that SBAMCommandLineScanner is working before AP check and if not output error message
+                            $SBAMAPState = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate
+                            if ($SBAMAPState[0] -eq "ERROR:Couldn't access service interface") { $SBAMMessage = "SBAMCommandLineScanner is not working" } else { $SBAMMessage = $SBAMAPState }
+                            # check that SBAMCommandLineScanner is working before Defs check and if not output error message
+                            $SBAMDefs = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion
+                            if ($SBAMDefs[0] -eq "ERROR:Couldn't access threat definition interface") { $SBAMMessage1 = "SBAMCommandLineScanner is not working" }
+                            $VipreVar = Get-Process SBAMTray -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
+                            @{ n = 'Vipre Version'; e = { $_.FileVersion } },
+                            @{ n = 'Active Protection State'; e = { $SBAMMessage } }, 
+                            @{ n = 'Date/Time definitions last updated'; e = { if ($SBAMMessage1) { $SBAMMessage1 } else { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } } }
+                            #[datetime](($var -split '- ')[1])
+                        }
+                        elseif ((Get-Service SBAMsvc -ErrorAction SilentlyContinue).StartType -eq 'Disabled') { 
+                            $VipreVar = "Vipre is installed, but SBAMSvc is in a disabled state.`nTo enable the service and start it, re-run Get-AVInfo with the 'EnableVipre' parameter."
+                        }
+                        else { 
+                            $VipreVar = "Vipre is either not installed or else not running." 
+                        } # if SBAM*
+                    }
+                    catch {
+                        $Message = $($Error[0])
+                    }
+                    
+                    # check for AP in disabled state while defs download and update for the first time after a Vipre install
+                    if ( ($SBAMAPState -eq 'Disabled') -and ((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*" )) {
+                        $VipreUpdateStatus = 1
+                        $DefsMessage = "Vipre Active protection is disabled. Vipre definitions are currently updating.`nIf you just installed Vipre please wait for the definitions update to complete and then check on the Active Protection again."
+                    }
+
+                    Write-Verbose "Checking if machine can reach intellisecure.myvipre.com"
+                    try {
+                        $Pref = $ProgressPreference
+                        $ProgressPreference = 'SilentlyContinue'
+                        $WebFilter = (Invoke-WebRequest intellisecure.myvipre.com -UseBasicParsing -ErrorAction Stop -Verbose:$false).content 
+                        $ProgressPreference = $Pref
+                        if ($WebFilter -like "*<title>Website Filtered</title>*") {
+                            $Blocked = "`nThe machine cannot reach out to Vipre on domain intellisecure.myvipre.com. It may be blocked by a web content filter, or other network issue."
+                        }
+                    }
+                    catch {
+                        $Blocked = "Failed to test connection to intellisecure.myvipre.com. `nPlease test manually if services won't start, or if Vipre is otherwise not working as expected."
+                    } 
+                } # if $Vipre
+                elseif (!$DefaultOverride -or $WindowsDefender) {
                     try {
                         Write-Verbose -Message "Retrieving Windows Defender info"
                         $WDStatus = Get-MpComputerStatus -ErrorAction Stop
@@ -547,55 +600,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             } # if answer 'N'
                         } # if wuauserv is stopped
                     } # if signatures out of date more than 1 day
-                } # elseif $WindowsDefender
-                elseif (!$DefaultOverride -or $Vipre) {
-                    try {
-                        Write-Verbose -Message "Retrieving Vipre info"
-                        if (Get-Process SBAM* -ErrorAction Stop) {
-                            if (!(Get-Process SBAMTray -ErrorAction SilentlyContinue)) { Start-Process 'C:\Program Files (x86)\Vipre Business Agent\SBAMTray.exe' } # For when SBAMSvc is running, while SBAMTray is not
-                            # check that SBAMCommandLineScanner is working before AP check and if not output error message
-                            $SBAMAPState = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate
-                            if ($SBAMAPState[0] -eq "ERROR:Couldn't access service interface") { $SBAMMessage = "SBAMCommandLineScanner is not working" } else { $SBAMMessage = $SBAMAPState }
-                            # check that SBAMCommandLineScanner is working before Defs check and if not output error message
-                            $SBAMDefs = & 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion
-                            if ($SBAMDefs[0] -eq "ERROR:Couldn't access threat definition interface") { $SBAMMessage1 = "SBAMCommandLineScanner is not working" }
-                            $VipreVar = Get-Process SBAMTray -ErrorAction SilentlyContinue | Select-Object -First 1 | Format-Table `
-                            @{ n = 'Vipre Version'; e = { $_.FileVersion } },
-                            @{ n = 'Active Protection State'; e = { $SBAMMessage } }, 
-                            @{ n = 'Date/Time definitions last updated'; e = { if ($SBAMMessage1) { $SBAMMessage1 } else { $Date = (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /displaylocaldefversion).Substring('9'); $Date1 = $Date.split('T'); "Date: $($Date1[0]) Time: $($Date1[1])" } } }
-                            #[datetime](($var -split '- ')[1])
-                        }
-                        elseif ((Get-Service SBAMsvc -ErrorAction SilentlyContinue).StartType -eq 'Disabled') { 
-                            $VipreVar = "Vipre is installed, but SBAMSvc is in a disabled state.`nTo enable the service and start it, re-run Get-AVInfo with the 'EnableVipre' parameter."
-                        }
-                        else { 
-                            $VipreVar = "Vipre is either not installed or else not running." 
-                        } # if SBAM*
-                    }
-                    catch {
-                        $Message = $($Error[0])
-                    }
-                    
-                    # check for AP in disabled state while defs download and update for the first time after a Vipre install
-                    if ( ($SBAMAPState -eq 'Disabled') -and ((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*" )) {
-                        $VipreUpdateStatus = 1
-                        $DefsMessage = "Vipre Active protection is disabled. Vipre definitions are currently updating.`nIf you just installed Vipre please wait for the definitions update to complete and then check on the Active Protection again."
-                    }
-
-                    Write-Verbose "Checking if machine can reach intellisecure.myvipre.com"
-                    try {
-                        $Pref = $ProgressPreference
-                        $ProgressPreference = 'SilentlyContinue'
-                        $WebFilter = (Invoke-WebRequest intellisecure.myvipre.com -UseBasicParsing -ErrorAction Stop -Verbose:$false).content 
-                        $ProgressPreference = $Pref
-                        if ($WebFilter -like "*<title>Website Filtered</title>*") {
-                            $Blocked = "`nThe machine cannot reach out to Vipre on domain intellisecure.myvipre.com. It may be blocked by a web content filter, or other network issue."
-                        }
-                    }
-                    catch {
-                        $Blocked = "Failed to test connection to intellisecure.myvipre.com. `nPlease test manually if services won't start, or if Vipre is otherwise not working as expected."
-                    } 
-                } # else if !$DefaultOverride -or $Vipre
+                } # else if !$DefaultOverride -or $WindowsDefender
 
                 if (Test-Path 'C:\Program Files\Sophos' -PathType Container) {
                     Write-Verbose "Checking Sophos Tamper Protection status"
@@ -613,7 +618,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } 
                 } # if Get-Command
 
-                if (!$WindowsDefender -and !$Bitdefender) {    
+                if ($Vipre) {    
                     Write-Verbose "Testing for Vipre version 12.0 "
                     if ( ( (Get-Process SBAM* | Select-Object -First 1).FileVersion -like "12.0*" ) -and ( (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate) -eq "Disabled" ) ) {
                         $Buggy_Version = "Vipre 12.0.x is installed. There is a bug in version 12.0 that prevents Vipre Active Protection from turning on. If you can't enable Active Protection, install Vipre version 12.3 or higher and try again."
@@ -701,28 +706,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "Bitdefender Product and Engine (antimalware signatures) versions:"
                     $BDVar | Format-List
                 }
-                elseif ($WindowsDefender) {
-                    if ($WDMessage) {
-                        Write-Host -ForegroundColor Green "Windows Defender Info:"
-                        Write-Warning "Error retrieving Windows Defender info.`nError message: $($WDMessage)"
-                    }
-                    else {
-                        Write-Host -ForegroundColor Green "Windows Defender Services:"
-                        $WDObjEnabled | Format-List
-                        Write-Host -ForegroundColor Green "Windows Defender Signatures:"
-                        $WDObj | Format-Table
-                    }
-                    if ($UIStatus -eq 1) {
-                        Write-Host -ForegroundColor Cyan "Windows Defender UI is locked down"
-                    }
-                    if ( $RegKey -and ($RegKey -contains 1) ) {
-                        Write-Host -ForegroundColor Green "Windows Defender Registry key:"
-                        # "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, either set the value back to '0', delete the key, or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
-                        "Windows Defender is disabled in the Registry. `nTo re-enable, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
-                        "`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
-                    }
-                } # elseif $WindowsDefender
-                elseif (!$DefaultOverride) {
+                elseif ($Vipre) {
                     Write-Host -ForegroundColor Green "Version of Vipre on the machine, and the date the definitions last updated:"
                     if ($Message) {
                         Write-Warning "Error retrieving Vipre info.`nError message:`n$($Message) "
@@ -734,7 +718,28 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         }
                     }
                     Write-Host -ForegroundColor Cyan "$($Blocked)"  
-                }
+                } # elseif $Vipre
+                elseif (!$DefaultOverride) {
+                    if ($WDMessage) {
+                        Write-Host -ForegroundColor Green "Windows Defender Info:"
+                        Write-Warning "Error retrieving Windows Defender info.`nError message: $($WDMessage)"
+                    }
+                    else {
+                        Write-Host -ForegroundColor Green "Windows Defender Services:"
+                        $WDObjEnabled | Format-List
+                        Write-Host -ForegroundColor Green "Windows Defender Signatures:"
+                        $WDObj | Format-Table
+                    }
+                    if ( $RegKey -and ($RegKey -contains 1) ) {
+                        Write-Host -ForegroundColor Green "Windows Defender Registry key:"
+                        # "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, either set the value back to '0', delete the key, or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        "Windows Defender is disabled in the Registry. `nTo re-enable, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        "`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
+                    }
+                    if ($UIStatus -eq 1) {
+                        Write-Host -ForegroundColor Cyan "Windows Defender UI is locked down"
+                    }
+                } # elseif !$DefaultOverride
 
                 if ($ARM) {
                     Write-Warning $ARM
