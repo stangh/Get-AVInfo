@@ -158,7 +158,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
         [Parameter(parametersetname = 'WSC_Action',
             Mandatory = $false)]
-        [Switch]$UnregisterAV
+        [Switch]$UnregisterAV,
+
+        # for the P-PP Webroot machines
+        [Parameter(parametersetname = 'Webroot_Action',
+            Mandatory = $false)]
+        [Switch]$UnregisterWebroot
     )
 
     BEGIN {
@@ -412,7 +417,17 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 } # foreach-object
                 Write-Host "`nExiting Script"
             } # if ParameterSet 'WSC_Action'
-        
+            'Webroot_Action' {
+                Write-Host "Removing Webroot from the Windows Security Center"
+                Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname='Webroot SecureAnywhere'" | Remove-WmiObject
+                Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname='Webroot SecureAnywhere'" | Remove-WmiObject
+                $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
+                $ASP = (Get-WmiObject -Namespace root\securitycenter2 -Class AntispywareProduct).DisplayName
+                Write-Host -ForegroundColor Green "`nAVs still registered with the Windows Security Center:"
+                $AVP
+                $ASP
+            } # if ParameterSet 'Webroot_Action'
+                    
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
@@ -600,7 +615,22 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             } # if answer 'N'
                         } # if wuauserv is stopped
                     } # if signatures out of date more than 1 day
-                } # else if !$DefaultOverride -or $WindowsDefender
+
+                    Write-Verbose "Checking for the presence and value of the 'Real-Time Protection' Registry key"
+                    $RTP_Key = Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" -ErrorAction SilentlyContinue
+                    # checking for disabled Windows Defender services
+                    # converting from ordered dictionary to array for enumeration purposes
+                    $Array2 = @($WDProps.Values)
+                    foreach ($A in $Array2) {
+                        if ($A -ne $true) { $WD_Services_Disabled = $true; break }
+                    } # foreach
+                    if (!$RTP_Key -and $WD_Services_Disabled) {
+                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender services listed above are not enabled. Please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
+                    } # if !$RTP_Key
+                    elseif (($RTP_Key).DisableRealtimeMonitoring -eq 1) { 
+                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender services listed above are not enabled. Please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
+                    } # elseif $RTP_Key
+                } # elseif !$DefaultOverride -or $WindowsDefender
 
                 if (Test-Path 'C:\Program Files\Sophos' -PathType Container) {
                     Write-Verbose "Checking Sophos Tamper Protection status"
@@ -727,6 +757,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         Write-Host -ForegroundColor Green "Windows Defender Services:"
                         $WDObjEnabled | Format-List
+                        Write-Host -ForegroundColor Cyan $RTP_Message
                         Write-Host -ForegroundColor Green "Windows Defender Signatures:"
                         $WDObj | Format-Table
                     }
