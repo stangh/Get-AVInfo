@@ -37,6 +37,7 @@ This script can also perform the following useful actions:
     - Enable Windows Defender if it is disabled
     - Disable UI lockdown
     - Enable UI lockdown
+    - Test if Tamper Protection is enabled
 - **Vipre**
     - Update Vipre definitions
     - Enable Vipre when it is disabled

@@ -281,6 +281,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if ($ResetWDDefs) {
                     Write-Verbose "Removing the current definitions and reloading them"
                     & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -RemoveDefinitions -All
+                    Write-Verbose "Reset definitions complete. Initiating signature update."
                     & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -SignatureUpdate
                 }
                 if ($EnableUILockdown) {
@@ -583,6 +584,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Verbose 'Checking WD UILockdown status'
                     $UIStatus = (Get-ItemProperty 'hklm:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -ErrorAction SilentlyContinue).UILockdown
 
+                    Write-Verbose 'Checking Windows Tamper Protetion'
+                    $TPStatus = (Get-MpComputerStatus).IsTamperProtected
+                    # can also check via the following Registry key
+                    # (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Features\').TamperProtection
+
                     Write-Verbose "Checking value of Windows Defender Registry key"
                     $RegKey = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue).DisableAntiSpyware,
                     (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue).DisableAntiVirus,
@@ -708,7 +714,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 else {
                     if ($Server) {
                         Write-Host -ForegroundColor Yellow "This machine is running server OS. The Windows Security Center is not relevant to Windows Server operating systems."
-                        $AV | Format-List AMRunningMode, *enabled*
+                        # $AV | Format-List AMRunningMode, *enabled*
                     }
                     else {
                         Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize -Wrap
@@ -755,7 +761,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Warning "Error retrieving Windows Defender info.`nError message: $($WDMessage)"
                     }
                     else {
-                        Write-Host -ForegroundColor Green "Windows Defender Services:"
+                        Write-Host -ForegroundColor Green "Windows Defender base engines:"
                         $WDObjEnabled | Format-List
                         Write-Host -ForegroundColor Cyan $RTP_Message
                         Write-Host -ForegroundColor Green "Windows Defender Signatures:"
@@ -769,6 +775,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     }
                     if ($UIStatus -eq 1) {
                         Write-Host -ForegroundColor Cyan "Windows Defender UI is locked down"
+                    }
+                    if ($TPStatus -eq $true) {
+                        Write-Host -ForegroundColor Cyan "Windows Defender Tamper Protection is enabled (configurable from the Windows Security app only)"
                     }
                 } # elseif !$DefaultOverride
 
