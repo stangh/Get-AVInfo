@@ -20,14 +20,14 @@ Returns detailed information about Vipre installed on the system. This is the de
 When specifiying this parameter, the script will also test that the machine can reach intellisecure.myvipre.com.
 Vipre is the default, when no AV is specified.
 .PARAMETER DefaultOverride
-Overrides the default behavior of retrieving Vipre information, when no other AV is specified. This cannot be used with any parameter other than the 'NoMachineInfo' parameter.
+Overrides the default behavior of retrieving Vipre information, when no other AV is specified. This cannot be used with any parameter other than the 'MachineInfo' parameter.
 .PARAMETER InstallVipre
 Downloads the Vipre installer from our LTShare and runs it.
 .PARAMETER UpdateVipreDefs
 Updates Vipre definitions. Can only be used with the EnableVipre parameter.
-.PARAMETER NoMachineInfo
-When specifying this parameter, the script does not check for hardware and OS information. 
-Cannot be used with the 'action' parameters (such as UpdateVipreDefs); 'NoMachineInfo' is the default in such cases.
+.PARAMETER MachineInfo
+When specifying this parameter, the script checks for hardware and OS information. The script does not perform these checks by default.
+Cannot be used with the 'action' parameters (such as UpdateVipreDefs).
 .PARAMETER EnableVipre
 Enables SBAMSvc. For when the SBAMSvc service is in a disabled state. Can only be used with the UpdateVipreDefs parameter.
 .PARAMETER EnableVipreAP
@@ -41,9 +41,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
     PS C:\> Get-AVInfo -WindowsDefender
     This retrieves AVs installed on the system, as well as detailed information on Windows Defender.
 .EXAMPLE
-    PS C:\> Get-AVInfo -Vipre -NoMachineInfo
+    PS C:\> Get-AVInfo -Vipre -MachineInfo
     This retrieves AVs installed on the system, as well as detailed information on Vipre.
-    Specifying the 'NoMachineInfo' switch parameter, causes the command to skip the hardware and OS checks.
+    Specifying the 'MachineInfo' switch parameter causes the command to perform hardware and OS checks as well.
 .EXAMPLE
     PS C:\> Get-AVInfo -EnableVipre
     Running this enables the SBAMSvc service and starts it.
@@ -135,6 +135,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
+        [Switch]$GetMpCmdRunLog,
+
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
         [Switch]$DisableUILockdown,
 
         [Parameter(parametersetname = 'WindowsDefender_Action',
@@ -149,7 +153,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Bitdefender')]
         [Parameter(parametersetname = 'WindowsDefender')]
         [Parameter(parametersetname = 'Default_Override')]
-        [Switch]$NoMachineInfo,
+        [Switch]$MachineInfo,
 
         # for the TT Symantec ticket only
         [Parameter(parametersetname = 'Symantec',
@@ -226,9 +230,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Warning "No Vipre service detected.`nExiting"
                     }
                     else {
-                        for ($i = 0; $i -lt 5; $i++) {
-                            Get-Service SBAMSvc; Start-Sleep -Seconds 2
-                        } # for loop
+                        while ( (Get-Service SBAMSvc).Status -ne 'Stopped' ) {
+                            for ($i = 0; $i -lt 20; $i++) {
+                                Get-Service SBAMSvc; Start-Sleep -Seconds 2
+                            } # for loop
+                        } # while
+                        Write-Host "Service SBAMSvc is in a stopped state"
                     }
                 } # if $AgentShutdownCheck
                 if ($VipreUpdateCheck) {
@@ -284,6 +291,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Verbose "Reset definitions complete. Initiating signature update."
                     & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -SignatureUpdate
                 }
+                if ($GetMpCmdRunLog) {
+                    # open the MpCmdRun.log logfile
+                    Notepad C:\Windows\Temp\MpCmdRun.log
+                }
                 if ($EnableUILockdown) {
                     Write-Verbose "Hiding the Windows Defender UI"
                     Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -Name 'UILockdown' -Value 1 -ErrorAction SilentlyContinue
@@ -333,24 +344,29 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             'Vipre_Uninstall' {
                 if ($UninstallVipre) {
                     $App = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object displayname -like *vipre*
-                    foreach ($A in $App) {
-                        $Answer = Read-Host "Are you sure you want to uninstall $($A.DisplayName)? (Y/N)"
-                        if ($Answer -eq 'Y') {
-                            Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
-                            $UninstallString = $A.UninstallString
-                            if ($UninstallString -like '*/I*') {
-                                $UninstallCommand = $UninstallString.Replace('/I', '/X')
-                            }
+                    if (!$App) {
+                        Write-Host "Vipre is not installed.`nExiting."
+                    }
+                    else {
+                        foreach ($A in $App) {
+                            $Answer = Read-Host "Are you sure you want to uninstall $($A.DisplayName)? (Y/N)"
+                            if ($Answer -eq 'Y') {
+                                Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
+                                $UninstallString = $A.UninstallString
+                                if ($UninstallString -like '*/I*') {
+                                    $UninstallCommand = $UninstallString.Replace('/I', '/X')
+                                }
+                                else {
+                                    $UninstallCommand = $UninstallString
+                                }
+                                Write-Verbose "Uninstalling $A.DisplayName"
+                                cmd.exe /c $($uninstallcommand)
+                            } # if $Answer -eq 'Y'
                             else {
-                                $UninstallCommand = $UninstallString
-                            }
-                            Write-Verbose "Uninstalling $A.DisplayName"
-                            cmd.exe /c $($uninstallcommand)
-                        } # if $Answer -eq 'Y'
-                        else {
-                            Write-Host "Cancelling uninstall of $($A.DisplayName)."
-                        } # else $Answer -eq 'N'
-                    } # foreach $A in $App 
+                                Write-Host "Cancelling uninstall of $($A.DisplayName)."
+                            } # else $Answer -eq 'N'
+                        } # foreach $A in $App
+                    } # else $App
                 } # if $UninstallVipre
             } # if ParameterSet 'Vipre_Uninstall'
             'Symantec' {
@@ -666,7 +682,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $Techloq = "The Techloq content filter is installed on this machine."
                 }
 
-                if (!$NoMachineInfo -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
+                if ($MachineInfo -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
                     Write-Verbose -Message "Retrieving OS info" 
                     # Verbose messages from Get-CimInstance are suppressed, even if the -Verbose parameter is specified when running the function
                     $BIOS = Get-CimInstance -ClassName win32_Bios -Verbose:$false
@@ -698,7 +714,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         'Uptime'                               = "{0:dd}d:{0:hh}h:{0:mm}m" -f $UT
                     }
                     $Obj = New-Object -TypeName psobject -Property $Props
-                } # if !$NoMachineInfo
+                } # if $MachineInfo
 
                 Write-Verbose -Message "Writing results to the screen"
 
@@ -793,7 +809,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Warning "Sophos Tamper Protection is enabled on this machine."
                 }
 
-                if (!$NoMachineInfo) { 
+                if ($MachineInfo) { 
                     Write-Host -ForegroundColor Green "`nHardware, OS and User info:"
                     if ($Obj) {
                         Write-Output $Obj | Format-List
@@ -810,7 +826,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ($Techloq) {
                         Write-Host -ForegroundColor Green $Techloq
                     }
-                } # if !$NoMachineInfo
+                } # if $MachineInfo
             } # Default
         } # switch
     } # PROCESS
