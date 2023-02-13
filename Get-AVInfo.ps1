@@ -145,6 +145,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$EnableUILockdown,
 
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$InstallWDFeature,
+
         [Parameter(ParameterSetName = 'Bitdefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateBDDefs,
@@ -304,6 +308,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -Name 'UILockdown' -Value 0 -ErrorAction SilentlyContinue
                     Write-Host "Keep in mind the 'Notification_Supress' Registry key may still be enabled"
                 }
+                if ($InstallWDFeature) {
+                    Write-Verbose "Installing the Windows-Defender feature"
+                    Get-WindowsFeature | Where-Object { $_.Name -like 'Windows-Defender' } | Add-WindowsFeature
+                }
             } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
@@ -457,7 +465,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if ( (Get-WmiObject Win32_OperatingSystem).producttype -ne 1 ) {
                     # Servers don't have the 'securitycenter2' namespace
                     $Server = $true
-                    $AV = Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus
+                    $AV = Get-CimInstance -Namespace root\Microsoft\protectionmanagement -class MSFT_MpComputerStatus -ErrorAction SilentlyContinue
                 } # if server OS
                 else {
                     if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
@@ -601,9 +609,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $UIStatus = (Get-ItemProperty 'hklm:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -ErrorAction SilentlyContinue).UILockdown
 
                     Write-Verbose 'Checking Windows Tamper Protetion'
-                    $TPStatus = (Get-MpComputerStatus).IsTamperProtected
-                    # can also check via the following Registry key
-                    # (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Features\').TamperProtection
+                    if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) {
+                        $TPStatus = (Get-MpComputerStatus -ErrorAction SilentlyContinue).IsTamperProtected
+                    }
+                    else {
+                        $TPStatus = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Features\').TamperProtection
+                    }
 
                     Write-Verbose "Checking value of Windows Defender Registry key"
                     $RegKey = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue).DisableAntiSpyware,
@@ -652,6 +663,19 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     elseif (($RTP_Key).DisableRealtimeMonitoring -eq 1) { 
                         $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender services listed above are not enabled. Please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
                     } # elseif $RTP_Key
+
+                    if ($Server) {
+                        # checking if the Windows-Defender feature is installed on the server
+                        Write-Verbose "Checking for the Windows-Defender feature"
+                        $Pref = $ProgressPreference
+                        $ProgressPreference = 'SilentlyContinue'
+                        $WD_Feature = (Get-WindowsFeature | Where-Object { $_.Name -like 'windows-defender' }).Installed
+                        $ProgressPreference = $Pref
+                        if ($WD_Feature -ne $true) {
+                            $Server_Message = "The Windows-Defender feature is not installed on this server. To install, run 'Get-AVInfo -InstallWDFeature'."
+                        }
+                    }
+
                 } # elseif !$DefaultOverride -or $WindowsDefender
 
                 if (Test-Path 'C:\Program Files\Sophos' -PathType Container) {
@@ -792,8 +816,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ($UIStatus -eq 1) {
                         Write-Host -ForegroundColor Cyan "Windows Defender UI is locked down"
                     }
-                    if ($TPStatus -eq $true) {
+                    if ($TPStatus -eq $true -or $TPStatus -eq 1) {
                         Write-Host -ForegroundColor Cyan "Windows Defender Tamper Protection is enabled (configurable from the Windows Security app only)"
+                    }
+                    if ($Server_Message) {
+                        Write-Host -ForegroundColor Cyan "$Server_Message"
                     }
                 } # elseif !$DefaultOverride
 
