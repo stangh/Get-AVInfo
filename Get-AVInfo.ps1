@@ -117,6 +117,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$AgentShutdownCheck,
         
+        [Parameter(parametersetname = 'Vipre_Action',
+            Mandatory = $false)]
+        [Switch]$VipreRemovalTool,
+        
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
         [Switch]$EnableWDRegKey,
@@ -273,6 +277,19 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         }
                     } # if Test-Path
                 } # if $RenameDefsFolder
+                if ($VipreRemovalTool) {
+                    Write-Verbose "Downloading the Vipre Removal Tool"
+                    Invoke-WebRequest -Uri "https://go.vipre.com/?linkid=1914" -OutFile "C:\Windows\Temp\VipreRemovalTool.exe"
+                    Write-Verbose "Download complete"
+                    $Answer = Read-Host "The Vipre Removal Tool will reobot the computer.`nProceed? (Y/N)"
+                    if ($Answer -eq 'Y') {
+                        & "C:\Windows\Temp\VipreRemovalTool.exe" # -spquiet   
+                    }
+                    elseif ($Answer -eq 'N') {
+                        Write-Host "Not running the Vipre Removal Tool.`nClosing."
+                        Break
+                    }
+                }
             } # if ParameterSet 'Vipre_Action'
             'WindowsDefender_Action' {
                 if ($EnableWDRegKey) {
@@ -359,6 +376,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         foreach ($A in $App) {
                             $Answer = Read-Host "Are you sure you want to uninstall $($A.DisplayName)? (Y/N)"
                             if ($Answer -eq 'Y') {
+                                # killing off Vipre processes that seem to cause the built-in uninstaller to hang at times
+                                Get-Process | Where-Object company -like "*Vipre*" | Stop-Process
+                                
                                 Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
                                 $UninstallString = $A.UninstallString
                                 if ($UninstallString -like '*/I*') {
@@ -560,19 +580,22 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $DefsMessage = "Vipre Active protection is disabled. Vipre definitions are currently updating.`nIf you just installed Vipre please wait for the definitions update to complete and then check on the Active Protection again."
                     }
 
-                    Write-Verbose "Checking if machine can reach intellisecure.myvipre.com"
-                    try {
-                        $Pref = $ProgressPreference
-                        $ProgressPreference = 'SilentlyContinue'
-                        $WebFilter = (Invoke-WebRequest intellisecure.myvipre.com -UseBasicParsing -ErrorAction Stop -Verbose:$false).content 
-                        $ProgressPreference = $Pref
-                        if ($WebFilter -like "*<title>Website Filtered</title>*") {
-                            $Blocked = "`nThe machine cannot reach out to Vipre on domain intellisecure.myvipre.com. It may be blocked by a web content filter, or other network issue."
+                    if ( $PSVersionTable.PSVersion.Major -ne 2 ) { 
+                        # no Invoke-WebRequest in PS version 2
+                        Write-Verbose "Checking if machine can reach intellisecure.myvipre.com"
+                        try {
+                            $Pref = $ProgressPreference
+                            $ProgressPreference = 'SilentlyContinue'
+                            $WebFilter = (Invoke-WebRequest intellisecure.myvipre.com -UseBasicParsing -ErrorAction Stop -Verbose:$false).content 
+                            $ProgressPreference = $Pref
+                            if ($WebFilter -like "*<title>Website Filtered</title>*") {
+                                $Blocked = "`nThe machine cannot reach out to Vipre on domain intellisecure.myvipre.com. It may be blocked by a web content filter, or other network issue."
+                            }
                         }
-                    }
-                    catch {
-                        $Blocked = "Failed to test connection to intellisecure.myvipre.com. `nPlease test manually if services won't start, or if Vipre is otherwise not working as expected."
-                    } 
+                        catch {
+                            $Blocked = "Failed to test connection to intellisecure.myvipre.com. `nPlease test manually if services won't start, or if Vipre is otherwise not working as expected."
+                        } 
+                    } # if PowerShell version 2
                 } # if $Vipre
                 elseif (!$DefaultOverride -or $WindowsDefender) {
                     try {
@@ -613,7 +636,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $TPStatus = (Get-MpComputerStatus -ErrorAction SilentlyContinue).IsTamperProtected
                     }
                     else {
-                        $TPStatus = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Features\').TamperProtection
+                        $TPStatus = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Features\' -ErrorAction SilentlyContinue).TamperProtection
                     }
 
                     Write-Verbose "Checking value of Windows Defender Registry key"
@@ -672,7 +695,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $WD_Feature = (Get-WindowsFeature | Where-Object { $_.Name -like 'windows-defender' }).Installed
                         $ProgressPreference = $Pref
                         if ($WD_Feature -ne $true) {
-                            $Server_Message = "The Windows-Defender feature is not installed on this server. To install, run 'Get-AVInfo -InstallWDFeature'."
+                            $Server_Message = "The Windows-Defender feature is not installed on this server. To install, remove any 3rd party AVs then run 'Get-AVInfo -InstallWDFeature'."
                         }
                     }
 
@@ -702,7 +725,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
             
                 Write-Verbose "Testing for the presence of the Techloq content filter"
-                if (Get-Process WindowsFilterAgentWPFClient -ErrorAction SilentlyContinue | Where-Object Company -eq Techloq) {
+                if (Get-Process WindowsFilterAgentWPFClient -ErrorAction SilentlyContinue | Where-Object { $_.Company -eq 'Techloq' }) {
                     $Techloq = "The Techloq content filter is installed on this machine."
                 }
 
@@ -757,7 +780,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         # $AV | Format-List AMRunningMode, *enabled*
                     }
                     else {
-                        Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, productState, Timestamp, InstanceGuid -AutoSize -Wrap
+                        Write-Output $AV | Sort-Object DisplayName | Format-Table DisplayName, ProductState, TimeStamp, InstanceGUID -AutoSize -Wrap
                     } # if -not $Server
                 } # else $AV
 
