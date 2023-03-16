@@ -120,6 +120,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Vipre_Action',
             Mandatory = $false)]
         [Switch]$VipreRemovalTool,
+
+        [Parameter(parametersetname = 'WindowsDefender',
+            Mandatory = $false)]
+        [switch]$WDSignaturesDetailed,
         
         [Parameter(parametersetname = 'WindowsDefender_Action',
             Mandatory = $false)]
@@ -175,7 +179,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         # for the P-PP Webroot machines
         [Parameter(parametersetname = 'Webroot_Action',
             Mandatory = $false)]
-        [Switch]$UnregisterWebroot
+        [Switch]$UnregisterWebroot,
+        
+        # for troubleshooting access to AV update URLs backstage
+        [Parameter(ParameterSetName = 'IE',
+            Mandatory = $false)]
+        [Switch]$OpenIE
     )
 
     BEGIN {
@@ -281,7 +290,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Verbose "Downloading the Vipre Removal Tool"
                     Invoke-WebRequest -Uri "https://go.vipre.com/?linkid=1914" -OutFile "C:\Windows\Temp\VipreRemovalTool.exe"
                     Write-Verbose "Download complete"
-                    $Answer = Read-Host "The Vipre Removal Tool will reobot the computer.`nProceed? (Y/N)"
+                    $Answer = Read-Host "The Vipre Removal Tool will reboot the computer.`nProceed? (Y/N)"
                     if ($Answer -eq 'Y') {
                         & "C:\Windows\Temp\VipreRemovalTool.exe" # -spquiet   
                     }
@@ -293,11 +302,13 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             } # if ParameterSet 'Vipre_Action'
             'WindowsDefender_Action' {
                 if ($EnableWDRegKey) {
+                    Write-Verbose "Creating or setting the applicable Windows Defender registry keys"
                     Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0 -ErrorAction SilentlyContinue
                     Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0 -ErrorAction SilentlyContinue
                     Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiVirus' -Value 0 -ErrorAction SilentlyContinue
                 }
                 if ($EnableWD) {
+                    Write-Verbose "Enabling Windows Defender"
                     & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -wdenable
                     Start-Service WinDefend -ErrorAction SilentlyContinue
                 }
@@ -326,8 +337,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host "Keep in mind the 'Notification_Supress' Registry key may still be enabled"
                 }
                 if ($InstallWDFeature) {
-                    Write-Verbose "Installing the Windows-Defender feature"
-                    Get-WindowsFeature | Where-Object { $_.Name -like 'Windows-Defender' } | Add-WindowsFeature
+                    if ( (Get-WmiObject Win32_OperatingSystem).producttype -ne 1 ) {
+                        Write-Verbose "Installing the Windows-Defender feature"
+                        Get-WindowsFeature | Where-Object { $_.Name -like 'Windows-Defender' } | Add-WindowsFeature
+                    }
+                    else {
+                        Write-Host -ForegroundColor Yellow "The 'InstallWDFeature' parameter can only be used on a server OS.`nExiting script."
+                        break
+                    }
                 }
             } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
@@ -377,8 +394,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             $Answer = Read-Host "Are you sure you want to uninstall $($A.DisplayName)? (Y/N)"
                             if ($Answer -eq 'Y') {
                                 # killing off Vipre processes that seem to cause the built-in uninstaller to hang at times
-                                Get-Process | Where-Object company -like "*Vipre*" | Stop-Process
-                                
+                                # $PIDs = Get-Process | Where-Object Company -like "*Vipre*"
+                                # Get-WmiObject Win32_Service | Where-Object { ($_.processid -ne 0) -and ($_.processid -in $PIDs) } | Stop-Process  -Force -ErrorAction SilentlyContinue
+                                Get-Process | Where-Object Company -like "*Vipre*" | Stop-Process -ErrorAction SilentlyContinue
+
                                 Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
                                 $UninstallString = $A.UninstallString
                                 if ($UninstallString -like '*/I*') {
@@ -472,10 +491,13 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 $AVP
                 $ASP
             } # if ParameterSet 'Webroot_Action'
+            'IE' {
+                & 'C:\Program Files\Internet Explorer\iexplore.exe'
+            } # if ParameterSet 'IE'
                     
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -614,7 +636,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             'RealTimeProtectionEnabled'                                         = $WDStatus.RealTimeProtectionEnabled
                         }
                         $WDObjEnabled = New-Object -TypeName psobject -Property $WDProps
-                            
+                        <#    
                         $Props = [Ordered]@{
                             'Signatures version'               = $WDStatus.AntispywareSignatureVersion
                             'Version created on'               = $WDStatus.AntispywareSignatureLastUpdated
@@ -622,7 +644,26 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             # the below boolean value is only accurate if wuaserv is running, otherwise it will show false even if signatures are out of date
                             'Signatures out of date'           = $WDStatus.DefenderSignaturesOutOfDate
                         }
+                        #>
+                        $Props = [Ordered]@{
+                            'Antivirus Signatures'   = $WDStatus.AntivirusSignatureLastUpdated
+                            'Antispyware Signatures' = $WDStatus.AntispywareSignatureLastUpdated
+                            'NIS Signatures'         = $WDStatus.NISSignatureLastUpdated
+                        }
                         $WDObj = New-Object -TypeName psobject -Property $Props
+
+                        $Props_detailed = [Ordered]@{
+                            'Antispyware Signatures created on' = $WDStatus.AntispywareSignatureLastUpdated
+                            'Antispyware Signatures age'        = $WDStatus.AntispywareSignatureAge
+                            'Antispyware Signatures version'    = $WDStatus.AntispywareSignatureVersion
+                            "`nAntivirus Signatures created on" = $WDStatus.AntivirusSignatureLastUpdated
+                            'Antivirus Signatures age'          = $WDStatus.AntivirusSignatureAge
+                            'Antivirus Signatures version'      = $WDStatus.AntivirusSignatureVersion
+                            "`nNIS Signatures created on"       = $WDStatus.NISSignatureLastUpdated
+                            'NIS Signatures age'                = $WDStatus.NISSignatureAge
+                            'NIS Signatures version'            = $WDStatus.NISSignatureVersion
+                        }
+                        $WDObj_detailed = New-Object -TypeName psobject -Property $Props_detailed
                     } # try
                     catch {
                         $WDMessage = $($Error[0])
@@ -681,10 +722,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         if ($A -ne $true) { $WD_Services_Disabled = $true; break }
                     } # foreach
                     if (!$RTP_Key -and $WD_Services_Disabled) {
-                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender services listed above are not enabled. Please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
+                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender engines listed above are not enabled. If applicable, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
                     } # if !$RTP_Key
                     elseif (($RTP_Key).DisableRealtimeMonitoring -eq 1) { 
-                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender services listed above are not enabled. Please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
+                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender engines listed above are not enabled. If applicable, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
                     } # elseif $RTP_Key
 
                     if ($Server) {
@@ -827,8 +868,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Host -ForegroundColor Green "Windows Defender base engines:"
                         $WDObjEnabled | Format-List
                         Write-Host -ForegroundColor Cyan $RTP_Message
-                        Write-Host -ForegroundColor Green "Windows Defender Signatures:"
-                        $WDObj | Format-Table
+                        if ($WDSignaturesDetailed) {
+                            Write-Host -ForegroundColor Green "Windows Defender Signatures:"
+                            $WDObj_detailed | Format-List
+                        }
+                        else {
+                            Write-Host -ForegroundColor Green "Windows Defender Signatures last updated:"
+                            $WDObj | Format-List
+                        }
                     }
                     if ( $RegKey -and ($RegKey -contains 1) ) {
                         Write-Host -ForegroundColor Green "Windows Defender Registry key:"
