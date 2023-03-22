@@ -157,9 +157,19 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$InstallWDFeature,
 
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$UpdateNISDefs,
+
         [Parameter(ParameterSetName = 'Bitdefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateBDDefs,
+
+        [Parameter(parametersetname = 'Vipre')]
+        [Parameter(parametersetname = 'Bitdefender')]
+        [Parameter(parametersetname = 'WindowsDefender')]
+        [Parameter(parametersetname = 'Default_Override')]
+        [Switch]$AVFolders,
 
         [Parameter(parametersetname = 'Vipre')]
         [Parameter(parametersetname = 'Bitdefender')]
@@ -343,6 +353,20 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     }
                     else {
                         Write-Host -ForegroundColor Yellow "The 'InstallWDFeature' parameter can only be used on a server OS.`nExiting script."
+                        break
+                    }
+                }
+                if ($UpdateNISDefs) {
+                    # for when NISEnabled is $True but NISSignatureLastUpdated is empty, and manually updating defs the usual way doesn't help 
+                    if ((Get-MpComputerStatus).AMProductVersion -gt '4.1.522.0') {
+                        # Download page: https://www.microsoft.com/en-us/wdsi/defenderupdates
+                        Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?LinkID=187316&arch=x64&nri=true" -OutFile 'C:\Windows\Temp\NISDefs.exe' | Out-Null
+                        & 'C:\Windows\Temp\NISDefs.exe'
+                        Write-Host -ForegroundColor Green "NIS defs last updated:"
+                        (Get-MpComputerStatus).NISSignatureLastUpdated
+                    }
+                    else {
+                        Write-Warning "The Antimalware Client version on the machine is older than version 4.1.522.0. Please manually download a compatible version NIS updates."
                         break
                     }
                 }
@@ -708,7 +732,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 }
                             } # if answer 'Y'
                             elseif ($WU -eq 'N') {
-                                Write-Host -ForegroundColor Green "NOT starting service wuauserv"
+                                Write-Host -ForegroundColor Yellow "NOT starting the wuauserv service"
                             } # if answer 'N'
                         } # if wuauserv is stopped
                     } # if signatures out of date more than 1 day
@@ -786,6 +810,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         $M = $Manufacturer
                     }
+                    $FastBoot = Get-ItemPropertyValue 'HKLM:SYSTEM\CurrentControlSet\Control\Session Manager\Power\' -Name HiberbootEnabled
+                  
                     $Props = [Ordered]@{
                         'SerialNumber'                         = $BIOS.SerialNumber
                         'WindowsVersion'                       = $OS.Caption
@@ -800,9 +826,16 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         'SysDriveFreeSpace (GB)'               = $LD.FreeSpace / 1GB -as [int]
                         'LastBootTime'                         = $OS.LastBootUpTime
                         'Uptime'                               = "{0:dd}d:{0:hh}h:{0:mm}m" -f $UT
+                        'FastBoot'                             = if ($FastBoot -eq 0) { 'Not enabled' } else { 'Enabled' }
                     }
                     $Obj = New-Object -TypeName psobject -Property $Props
                 } # if $MachineInfo
+
+                if ($AVFolders) {
+                    Write-Verbose "Looking for AV folders"
+                    $Name = "*vipre*", "*trend*", "*sophos*", "*N-able*", "*symantec*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*"
+                    $AV_Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }
+                }
 
                 Write-Verbose -Message "Writing results to the screen"
 
@@ -904,6 +937,13 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             
                 if ($SophosTPEnabled -eq $true) {
                     Write-Warning "Sophos Tamper Protection is enabled on this machine."
+                }
+
+                if ($AVFolders) {
+                    if ($AV_Folders) {
+                        Write-Host -ForegroundColor Green "`nAV folders on the machine (excluding Windows Defender):"
+                        $AV_Folders | Sort-Object FolderName | Format-Table
+                    }
                 }
 
                 if ($MachineInfo) { 
