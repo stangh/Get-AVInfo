@@ -161,6 +161,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$UpdateNISDefs,
 
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$RestartLTServices,
+
         [Parameter(ParameterSetName = 'Bitdefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateBDDefs,
@@ -370,6 +374,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         break
                     }
                 }
+                if ($RestartLTServices) {
+                    Write-Host -ForegroundColor Green "Stopping LT Services"
+                    Stop-Service LTService, LTSvcMon -ErrorAction SilentlyContinue -PassThru
+                    Write-Host -ForegroundColor Green "`nStarting LT Services"
+                    Start-Service LTService, LTSvcMon -ErrorAction SilentlyContinue -PassThru
+                }
             } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
@@ -521,7 +531,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -642,6 +652,19 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             $Blocked = "Failed to test connection to intellisecure.myvipre.com. `nPlease test manually if services won't start, or if Vipre is otherwise not working as expected."
                         } 
                     } # if PowerShell version 2
+
+                    Write-Verbose "Testing for ARM Processor"
+                    if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+                        if ((Get-CimInstance Win32_Processor -Verbose:$false).Caption -like "*arm*") {
+                            $ARM = "ARM processor detected. Vipre is not compatible with this machine."
+                        } 
+                    } # if Get-Command
+
+                    Write-Verbose "Testing for Vipre version 12.0 "
+                    if ( ( (Get-Process SBAM* | Select-Object -First 1).FileVersion -like "12.0*" ) -and 
+                    ( (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate) -eq "Disabled" ) ) {
+                        $Buggy_Version = "Vipre 12.0.x is installed. There is a bug in version 12.0 that prevents Vipre Active Protection from turning on. If you can't enable Active Protection, install Vipre version 12.3 or higher and try again."
+                    } # if Get-Process
                 } # if $Vipre
                 elseif (!$DefaultOverride -or $WindowsDefender) {
                     try {
@@ -721,7 +744,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                     Write-Verbose "Failed to start the service"
                                     Write-Verbose "Attempting to disable and then re-enable the wuauserv service"
                                     Set-Service wuauserv -StartupType Disabled
-                                    Set-Service wuauserv -StartupType Automatic -Status Running
+                                    Set-Service wuauserv -StartupType Manual -Status Running
                                 }
                                 if ( (Get-Service wuauserv).Status -eq 'Running' ) {
                                     Write-Host "wuauserv service successfully started`nUpdating Windows Defender signatures.."
@@ -746,10 +769,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         if ($A -ne $true) { $WD_Services_Disabled = $true; break }
                     } # foreach
                     if (!$RTP_Key -and $WD_Services_Disabled) {
-                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender engines listed above are not enabled. If applicable, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
+                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
                     } # if !$RTP_Key
                     elseif (($RTP_Key).DisableRealtimeMonitoring -eq 1) { 
-                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender engines listed above are not enabled. If applicable, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
+                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
                     } # elseif $RTP_Key
 
                     if ($Server) {
@@ -774,20 +797,6 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $SophosTPEnabled = $true
                     }
                 }
-
-                Write-Verbose "Testing for ARM Processor"
-                if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
-                    if ((Get-CimInstance Win32_Processor -Verbose:$false).Caption -like "*arm*") {
-                        $ARM = "ARM processor detected. Vipre is not compatible with this machine."
-                    } 
-                } # if Get-Command
-
-                if ($Vipre) {    
-                    Write-Verbose "Testing for Vipre version 12.0 "
-                    if ( ( (Get-Process SBAM* | Select-Object -First 1).FileVersion -like "12.0*" ) -and ( (& 'C:\Program Files*\VIPRE Business Agent\SBAMCommandLineScanner.exe' /apstate) -eq "Disabled" ) ) {
-                        $Buggy_Version = "Vipre 12.0.x is installed. There is a bug in version 12.0 that prevents Vipre Active Protection from turning on. If you can't enable Active Protection, install Vipre version 12.3 or higher and try again."
-                    } # if Get-Process
-                }
             
                 Write-Verbose "Testing for the presence of the Techloq content filter"
                 if (Get-Process WindowsFilterAgentWPFClient -ErrorAction SilentlyContinue | Where-Object { $_.Company -eq 'Techloq' }) {
@@ -810,7 +819,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         $M = $Manufacturer
                     }
-                    $FastBoot = Get-ItemPropertyValue 'HKLM:SYSTEM\CurrentControlSet\Control\Session Manager\Power\' -Name HiberbootEnabled
+                    $FastBoot = (Get-ItemProperty 'HKLM:SYSTEM\CurrentControlSet\Control\Session Manager\Power\').HiberBootEnabled
                   
                     $Props = [Ordered]@{
                         'SerialNumber'                         = $BIOS.SerialNumber
@@ -826,15 +835,15 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         'SysDriveFreeSpace (GB)'               = $LD.FreeSpace / 1GB -as [int]
                         'LastBootTime'                         = $OS.LastBootUpTime
                         'Uptime'                               = "{0:dd}d:{0:hh}h:{0:mm}m" -f $UT
-                        'FastBoot'                             = if ($FastBoot -eq 0) { 'Not enabled' } else { 'Enabled' }
+                        'FastBoot'                             = if ( $null -ne $FastBoot ) { if ($FastBoot -eq 0) { 'Not enabled' } else { 'Enabled' } } else { 'RegKeyNotPresent' }
                     }
                     $Obj = New-Object -TypeName psobject -Property $Props
                 } # if $MachineInfo
 
                 if ($AVFolders) {
                     Write-Verbose "Looking for AV folders"
-                    $Name = "*vipre*", "*trend*", "*sophos*", "*N-able*", "*symantec*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*"
-                    $AV_Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }
+                    $Name = "*vipre*", "*trend*", "*sophos*", "*N-able*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*"
+                    $AV_Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }, CreationTime
                 }
 
                 Write-Verbose -Message "Writing results to the screen"
@@ -913,7 +922,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ( $RegKey -and ($RegKey -contains 1) ) {
                         Write-Host -ForegroundColor Green "Windows Defender Registry key:"
                         # "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, either set the value back to '0', delete the key, or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
-                        "Windows Defender is disabled in the Registry. `nTo re-enable, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        "Windows Defender is disabled in the Registry. `nTo re-enable, assuming no third-part AVs are running, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
                         "`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
                     }
                     if ($UIStatus -eq 1) {
@@ -925,16 +934,21 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ($Server_Message) {
                         Write-Host -ForegroundColor Cyan "$Server_Message"
                     }
+                    if ($Techloq) {
+                        Write-Host -ForegroundColor Green $Techloq
+                    }
                 } # elseif !$DefaultOverride
 
-                if ($ARM) {
-                    Write-Warning $ARM
-                }
+                if ($Vipre) {
+                    if ($ARM) {
+                        Write-Warning $ARM
+                    }
 
-                if ($Buggy_Version) {
-                    Write-Warning $Buggy_Version
+                    if ($Buggy_Version) {
+                        Write-Warning $Buggy_Version
+                    }
                 }
-            
+                
                 if ($SophosTPEnabled -eq $true) {
                     Write-Warning "Sophos Tamper Protection is enabled on this machine."
                 }
@@ -942,7 +956,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if ($AVFolders) {
                     if ($AV_Folders) {
                         Write-Host -ForegroundColor Green "`nAV folders on the machine (excluding Windows Defender):"
-                        $AV_Folders | Sort-Object FolderName | Format-Table
+                        $AV_Folders | Sort-Object FolderName, FullPath | Format-Table
                     }
                 }
 
@@ -951,19 +965,16 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ($Obj) {
                         Write-Output $Obj | Format-List
                         # Format-List is needed for the last verbose message to appear in the right place on screen
-
-                        if ($Obj.'SysDriveFreeSpace (GB)' -lt 1) {
-                            Write-Warning "<<< Free space on the system drive is very low. >>>"
-                        }
                     }
                     else {
                         Write-Warning "Get-CimInstance is not supported on this machine.`nOS info check skipped."
                     } # if $Obj
-
-                    if ($Techloq) {
-                        Write-Host -ForegroundColor Green $Techloq
-                    }
                 } # if $MachineInfo
+
+                # The below warning will display even if $MachineInfo is not specified
+                if ( ((Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DeviceId='$((Get-CimInstance -ClassName Win32_OperatingSystem -Verbose:$false).SystemDrive)'" -Verbose:$false).FreeSpace / 1GB -as [int]) -lt 1) {
+                    Write-Warning "<<< Free space on the system drive is very low. >>>"
+                }
             } # Default
         } # switch
     } # PROCESS
