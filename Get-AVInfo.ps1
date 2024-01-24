@@ -165,6 +165,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$RestartLTServices,
 
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$RestartHuntressServices,
+
         [Parameter(ParameterSetName = 'Bitdefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateBDDefs,
@@ -173,7 +177,15 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Bitdefender')]
         [Parameter(parametersetname = 'WindowsDefender')]
         [Parameter(parametersetname = 'Default_Override')]
+        [Parameter(parametersetname = 'AV_Folders')]
         [Switch]$AVFolders,
+
+        [Parameter(parametersetname = 'Vipre')]
+        [Parameter(parametersetname = 'Bitdefender')]
+        [Parameter(parametersetname = 'WindowsDefender')]
+        [Parameter(parametersetname = 'Default_Override')]
+        [Parameter(parametersetname = 'AV_Folders')]
+        [Switch]$DeleteAVFolders,
 
         [Parameter(parametersetname = 'Vipre')]
         [Parameter(parametersetname = 'Bitdefender')]
@@ -185,6 +197,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Symantec',
             Mandatory = $false)]
         [Switch]$CleanWipe,
+
+        [Parameter(parametersetname = 'Avast',
+            Mandatory = $false)]
+        [Switch]$AvastUninstall,
+
+        [Parameter(parametersetname = 'Norton',
+            Mandatory = $false)]
+        [Switch]$NortonUninstall,
 
         [Parameter(parametersetname = 'WSC_Action',
             Mandatory = $false)]
@@ -271,7 +291,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 } # if $AgentShutdownCheck
                 if ($VipreUpdateCheck) {
                     if ( !((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*") ) {
-                        Write-Host "Vipre definitions are not being updated at the moment."                        
+                        Write-Host "Vipre definitions are not currently being updated."                        
                     }
                     else {
                         While ((Get-ChildItem "C:\Program Files (x86)\VIPRE Business Agent\Definitions\Beetle\*" -ErrorAction SilentlyContinue).Name -like "*_PENDING*" ) {
@@ -380,6 +400,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "`nStarting LT Services"
                     Start-Service LTService, LTSvcMon -ErrorAction SilentlyContinue -PassThru
                 }
+                if ($RestartHuntressServices) {
+                    Write-Host -ForegroundColor Green "Stopping Huntress Services"
+                    Stop-Service Huntress* -ErrorAction SilentlyContinue -PassThru
+                    Write-Host -ForegroundColor Green "`nStarting Huntress Services"
+                    Start-Service Huntress* -ErrorAction SilentlyContinue -PassThru
+                }
             } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
@@ -395,14 +421,17 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     else {
                         Write-Host -ForegroundColor Green "Downloading Vipre installer from LTShare. Please wait.."
                         # To account for Windows 7 machines I do not use the Invoke-WebRequest or Invoke-RestMethod cmdlets for downloading the installer
-                        (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/vipre_agent_intellisecure_12.3.8160.msi", "C:\Windows\Temp\VipreInstaller.msi")
+                        try {
+                            (New-Object Net.WebClient).DownloadFile("https://labtech.intellicomp.net/labtech/transfer/Tools/vipre_agent_intellisecure_12.3.8160.msi", "C:\Windows\Temp\VipreInstaller.msi")   
+                        }
+                        catch {}
                         if (Test-Path 'C:\Windows\Temp\VipreInstaller.msi') { 
                             Write-Host -ForegroundColor Green "Download complete (version 12.3.8160).`nInstaller saved to 'C:\Windows\Temp\VipreInstaller.msi'." 
                         }
-                        #else {
-                        #    Write-Warning "Download failed. Exiting script."
-                        #    exit
-                        #}
+                        else {
+                            Write-Warning "Download failed. Exiting script."
+                            break
+                        }
                     } # if !Test-Path
                     $Answer1 = Read-Host "Run the installer? (Y/N)"
                     if ($Answer1 -eq 'Y') {
@@ -430,7 +459,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 # killing off Vipre processes that seem to cause the built-in uninstaller to hang at times
                                 # $PIDs = Get-Process | Where-Object Company -like "*Vipre*"
                                 # Get-WmiObject Win32_Service | Where-Object { ($_.processid -ne 0) -and ($_.processid -in $PIDs) } | Stop-Process  -Force -ErrorAction SilentlyContinue
-                                Get-Process | Where-Object Company -like "*Vipre*" | Stop-Process -ErrorAction SilentlyContinue
+                                Get-Process | Where-Object Company -like "*Vipre*" | Stop-Process -Force -ErrorAction SilentlyContinue
 
                                 Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
                                 $UninstallString = $A.UninstallString
@@ -483,6 +512,40 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } # if 'N'
                 }
             } # if ParameterSet 'Symantec'
+            'Avast' {
+                $Answer = Read-Host "Would you like to download and run the Avast Removal Tool? (Y/N)"
+                if ($Answer -eq 'Y') {   
+                    Write-Verbose 'Downloading the Avast Removal tool'
+                    # To account for Windows 7 machines, I don't use the Invoke-WebRequest cmdlet below
+                    (New-Object Net.WebClient).DownloadFile("https://files.avast.com/iavs9x/avastclear.exe", "C:\Windows\Temp\avastclear.exe")
+                    Write-Verbose "Download complete"
+                    Start-Process "C:\Windows\Temp\avastclear.exe"
+                } # if 'Y'
+                elseif ($Answer -eq 'N') {
+                    Write-Host "Exiting script."
+                } # if 'N'             
+            } # if ParameterSet 'Avast'
+            'Norton' {
+                $Answer = Read-Host "Would you like to download and run the Norton Remove and Reinstall tool? (Y/N)"
+                if ($Answer -eq 'Y') {   
+                    if (!(Test-Path "C:\Windows\Temp\NRnR.exe")) {
+                        Write-Verbose 'Downloading the Norton Remove and Reinstall tool'
+                        # To account for Windows 7 machines, I don't use the Invoke-WebRequest cmdlet below
+                        (New-Object Net.WebClient).DownloadFile("https://norton.com/nrnr", "C:\Windows\Temp\NRnR.exe")
+                        Write-Verbose "Download complete"
+                        Write-Host -ForegroundColor Green "Download saved to 'C:\Windows\Temp\NRnR.exe'"
+                    }
+                    else {
+                        Write-Host -ForegroundColor Green "Tool already present at 'C:\Windows\Temp\NRnR.exe'"
+                    }
+                    Write-Host -ForegroundColor Green "Running the tool. Please wait."
+                    Write-Warning "If you're using CWC backstage the GUI won't show properly."
+                    Start-Process "C:\Windows\Temp\NRnR.exe"
+                } # if 'Y'
+                elseif ($Answer -eq 'N') {
+                    Write-Host "Exiting script."
+                } # if 'N'
+            } # if ParameterSet 'Norton
             'WSC_Action' {
                 Write-Host -ForegroundColor Green "The folowing AVs are registered with the Windows Security Center:"
                 $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
@@ -531,7 +594,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike* -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, `
+                    *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike*, *Rapport*, '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -732,9 +796,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue).DisableAntiVirus,
                     (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiVirus' -ErrorAction SilentlyContinue).DisableAntiVirus
 
+                    <#
                     if ( ($RegKey -contains 1) -and ($WDStatus.AntispywareSignatureAge -gt 1) ) {
                         if ( (Get-Service wuauserv).Status -eq 'Stopped') {
-                            $WU = Read-Host "Windows Defender signatures out of date. The Windows Update service is not running.`nStart the service? (Y/N)"
+                            $WU = Read-Host "Windows Defender signatures are out of date. The Windows Update service is not running.`nStart the service? (Y/N)"
                             if ($WU -eq 'Y') {
                                 try {
                                     Write-Verbose "Attempting to start the wuauserv service"
@@ -759,6 +824,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             } # if answer 'N'
                         } # if wuauserv is stopped
                     } # if signatures out of date more than 1 day
+                    #>
 
                     Write-Verbose "Checking for the presence and value of the 'Real-Time Protection' Registry key"
                     $RTP_Key = Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" -ErrorAction SilentlyContinue
@@ -782,7 +848,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $ProgressPreference = 'SilentlyContinue'
                         $WD_Feature = (Get-WindowsFeature | Where-Object { $_.Name -like 'windows-defender' }).Installed
                         $ProgressPreference = $Pref
-                        if ($WD_Feature -ne $true) {
+                        if ($WD_Feature -eq $false) {
                             $Server_Message = "The Windows-Defender feature is not installed on this server. To install, remove any 3rd party AVs then run 'Get-AVInfo -InstallWDFeature'."
                         }
                     }
@@ -797,10 +863,14 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         $SophosTPEnabled = $true
                     }
                 }
+
+                if ( (Get-ItemProperty hklm:\SOFTWARE\LabTech\Service).clientID -eq 113 ) {
+                    $BT = "This machine is at BT. BT uses Sophos."
+                }
             
                 Write-Verbose "Testing for the presence of the Techloq content filter"
                 if (Get-Process WindowsFilterAgentWPFClient -ErrorAction SilentlyContinue | Where-Object { $_.Company -eq 'Techloq' }) {
-                    $Techloq = "The Techloq content filter is installed on this machine."
+                    $Techloq = "The Techloq content filter is installed and running on this machine."
                 }
 
                 if ($MachineInfo -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
@@ -840,16 +910,44 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $Obj = New-Object -TypeName psobject -Property $Props
                 } # if $MachineInfo
 
-                if ($AVFolders) {
+                if ($AVFolders -or $DeleteAVFolders) {
                     Write-Verbose "Looking for AV folders"
-                    $Name = "*vipre*", "*trend*", "*sophos*", "*N-able*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*"
-                    $AV_Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }, CreationTime
-                }
+                    $Name = "*vipre*", "*trend*", "*sophos*", "*N-able*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*", "*Trusteer*", "*SuperAntiSpyware*", "*CrowdStrike*"
+                    $Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name -Exclude "*RemoteSetup*" -ErrorAction SilentlyContinue
+                    $AV_Folders = $Folders | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }, CreationTime
+                    if ($DeleteAVFolders) {
+                        if (!$AV_Folders) {
+                            Write-Host -ForegroundColor Green "No AV folders to delete.`nExiting."
+                            break
+                        }
+                        Write-Host -ForegroundColor Green "`nAV folders on the machine (excluding Windows Defender):"
+                        $AV_Folders | Sort-Object FolderName, FullPath | Format-Table
+                        $Answer2 = Read-Host "Delete the above folders? (Y/N)"
+                        if ($Answer2 -eq 'Y') {
+                            Write-Verbose "Deleting the AV folders"
+                            Remove-Item $Folders -Recurse -Force
+                            $Folders1 = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name -Exclude "*RemoteSetup*" -ErrorAction SilentlyContinue
+                            $AV_Folders1 = $Folders1 | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }, CreationTime
+                            Write-Host -ForegroundColor Green "`nAV folders still on the machine (excluding Windows Defender):"
+                            $AV_Folders1 | Sort-Object FolderName, FullPath | Format-Table
+                            break
+                        }
+                        elseif ($Answer2 -eq 'N') {
+                            Write-Host -ForegroundColor Green "NOT deleting AV folders`nExiting"
+                            break
+                        }
+                    } # if $DeleteAVFolders
+                } # if $AVFolders -or $DeleteAVFolders
 
                 Write-Verbose -Message "Writing results to the screen"
 
                 Write-Host -ForegroundColor Green "`nAntivirus software present on the machine (pulled from installed services):"
-                Write-Output $Services | Sort-Object DisplayName | Format-Table Status, StartType, Name, DisplayName -AutoSize
+                if (!$Services) {
+                    Write-Output `n
+                }
+                else {
+                    Write-Output $Services | Sort-Object DisplayName | Format-Table Status, StartType, Name, DisplayName -AutoSize
+                }
 
                 Write-Host -ForegroundColor Green "Antivirus software registered with the Windows Security Center (queried from the SecurityCenter2 namespace using WMI):"
                 # "if ($AV.Count -eq 0)"" as opposed to "if (!$AV)" is to account for $AV existing but as an ampty array
@@ -859,7 +957,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
                 else {
                     if ($Server) {
-                        Write-Host -ForegroundColor Yellow "This machine is running server OS. The Windows Security Center is not relevant to Windows Server operating systems."
+                        Write-Host -ForegroundColor Yellow "Not relevant to machines running server OS."
                         # $AV | Format-List AMRunningMode, *enabled*
                     }
                     else {
@@ -873,7 +971,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Warning "This machine is running Windows 7.`nAntivirus info is not logged in the usual place in the Registry."
                     }
                     elseif ($Server) {
-                        Write-Host -ForegroundColor Yellow "This machine is running server OS. Antivirus programs aren't registered in the typical place in Registry on servers."
+                        Write-Host -ForegroundColor Yellow "Not relevant to machines running server OS."
                     }
                     else {
                         Write-Warning "Failed to retrieve Antivirus software from Registry."
@@ -922,11 +1020,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ( $RegKey -and ($RegKey -contains 1) ) {
                         Write-Host -ForegroundColor Green "Windows Defender Registry key:"
                         # "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, either set the value back to '0', delete the key, or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
-                        "Windows Defender is disabled in the Registry. `nTo re-enable, assuming no third-part AVs are running, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
-                        "`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
+                        "Windows Defender is disabled in the Registry."#"`nTo re-enable, assuming no third-part AVs are running, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        #"`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
                     }
                     if ($UIStatus -eq 1) {
-                        Write-Host -ForegroundColor Cyan "Windows Defender UI is locked down"
+                        Write-Host -ForegroundColor Cyan "`nWindows Defender UI is locked down"
                     }
                     if ($TPStatus -eq $true -or $TPStatus -eq 1) {
                         Write-Host -ForegroundColor Cyan "Windows Defender Tamper Protection is enabled (configurable from the Windows Security app only)"
@@ -935,7 +1033,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Host -ForegroundColor Cyan "$Server_Message"
                     }
                     if ($Techloq) {
-                        Write-Host -ForegroundColor Green $Techloq
+                        Write-Host -ForegroundColor Cyan "`n$Techloq"
                     }
                 } # elseif !$DefaultOverride
 
@@ -952,6 +1050,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if ($SophosTPEnabled -eq $true) {
                     Write-Warning "Sophos Tamper Protection is enabled on this machine."
                 }
+
+                if ($BT) { Write-Host -ForegroundColor Cyan $BT }
 
                 if ($AVFolders) {
                     if ($AV_Folders) {
