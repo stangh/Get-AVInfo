@@ -206,6 +206,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$NortonUninstall,
 
+        [Parameter(parametersetname = 'McAfee_Action',
+            Mandatory = $false)]
+        [Switch]$McAfeeUninstall,
+
         [Parameter(parametersetname = 'WSC_Action',
             Mandatory = $false)]
         [Switch]$UnregisterAV,
@@ -214,6 +218,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Webroot_Action',
             Mandatory = $false)]
         [Switch]$UnregisterWebroot,
+
+        [Parameter(parametersetname = 'Webroot_Action',
+            Mandatory = $false)]
+        [Switch]$UninstallWebroot,
         
         # for troubleshooting access to AV update URLs backstage
         [Parameter(ParameterSetName = 'IE',
@@ -322,15 +330,20 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 } # if $RenameDefsFolder
                 if ($VipreRemovalTool) {
                     Write-Verbose "Downloading the Vipre Removal Tool"
-                    Invoke-WebRequest -Uri "https://go.vipre.com/?linkid=1914" -OutFile "C:\Windows\Temp\VipreRemovalTool.exe"
-                    Write-Verbose "Download complete"
-                    $Answer = Read-Host "The Vipre Removal Tool will reboot the computer.`nProceed? (Y/N)"
-                    if ($Answer -eq 'Y') {
-                        & "C:\Windows\Temp\VipreRemovalTool.exe" # -spquiet   
+                    Invoke-WebRequest -Uri "https://go.vipre.com/?linkid=1914" -OutFile "C:\Windows\Temp\VipreRemovalTool.exe" -ErrorAction SilentlyContinue
+                    if (Test-Path "C:\Windows\Temp\VipreRemovalTool.exe") {
+                        Write-Verbose "Download complete"
+                        $Answer = Read-Host "The Vipre Removal Tool will reboot the computer.`nProceed? (Y/N)"
+                        if ($Answer -eq 'Y') {
+                            & "C:\Windows\Temp\VipreRemovalTool.exe" # -spquiet   
+                        }
+                        elseif ($Answer -eq 'N') {
+                            Write-Host "Not running the Vipre Removal Tool.`nClosing."
+                            Break
+                        }
                     }
-                    elseif ($Answer -eq 'N') {
-                        Write-Host "Not running the Vipre Removal Tool.`nClosing."
-                        Break
+                    else {
+                        Write-Warning "The tool did not download successfully.`nPlease download it manually from 'https://go.vipre.com/?linkid=1914'."
                     }
                 }
             } # if ParameterSet 'Vipre_Action'
@@ -530,7 +543,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if ($Answer -eq 'Y') {   
                     if (!(Test-Path "C:\Windows\Temp\NRnR.exe")) {
                         Write-Verbose 'Downloading the Norton Remove and Reinstall tool'
-                        # To account for Windows 7 machines, I don't use the Invoke-WebRequest cmdlet below
+                        # To account for Windows 7 machines I don't use the Invoke-WebRequest cmdlet below
                         (New-Object Net.WebClient).DownloadFile("https://norton.com/nrnr", "C:\Windows\Temp\NRnR.exe")
                         Write-Verbose "Download complete"
                         Write-Host -ForegroundColor Green "Download saved to 'C:\Windows\Temp\NRnR.exe'"
@@ -546,6 +559,20 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host "Exiting script."
                 } # if 'N'
             } # if ParameterSet 'Norton
+            'McAfee_Action' {
+                # for uninstalling McAfee using MCPR when the regular uninstall methods aren't working
+                Write-Host -ForegroundColor Green "Downloading the McAfee Consumer Product Removal Tool (MCPR) tool"
+                Invoke-WebRequest -Uri 'https://download.mcafee.com/molbin/iss-loc/SupportTools/MCPR/MCPR.exe' -OutFile 'C:\MCPR.exe'
+                Write-Host -ForegroundColor Green "Download saved to 'C:\MCPR.exe'"
+                $Answer3 = Read-Host "Run the tool? (Y/N)"
+                if ($Answer3 -eq 'Y') {
+                    Write-Verbose "Running the tool"
+                    & "C:\MCPR.exe"
+                }
+                elseif ($Answer3 -eq 'N') {
+                    Write-Host -ForegroundColor Green "Tool will NOT be run.`nExiting script."
+                }
+            } # if ParameterSet 'McAfee_Action'
             'WSC_Action' {
                 Write-Host -ForegroundColor Green "The folowing AVs are registered with the Windows Security Center:"
                 $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
@@ -579,14 +606,29 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 Write-Host "`nExiting Script"
             } # if ParameterSet 'WSC_Action'
             'Webroot_Action' {
-                Write-Host "Removing Webroot from the Windows Security Center"
-                Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname='Webroot SecureAnywhere'" | Remove-WmiObject
-                Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname='Webroot SecureAnywhere'" | Remove-WmiObject
-                $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
-                $ASP = (Get-WmiObject -Namespace root\securitycenter2 -Class AntispywareProduct).DisplayName
-                Write-Host -ForegroundColor Green "`nAVs still registered with the Windows Security Center:"
-                $AVP
-                $ASP
+                if ($UnregisterWebroot) {
+                    Write-Host "Removing Webroot from the Windows Security Center"
+                    Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname='Webroot SecureAnywhere'" | Remove-WmiObject
+                    Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname='Webroot SecureAnywhere'" | Remove-WmiObject
+                    $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
+                    $ASP = (Get-WmiObject -Namespace root\securitycenter2 -Class AntispywareProduct).DisplayName
+                    Write-Host -ForegroundColor Green "`nAVs still registered with the Windows Security Center:"
+                    $AVP
+                    $ASP
+                }
+                if ($UninstallWebroot) {
+                    #for uninstalling webroot by installing with an msi on top of the existing install then uninstalling with the same msi right after
+                    Write-Host -ForegroundColor Green "Downloading Webroot installer"
+                    Invoke-WebRequest -Uri 'http://anywhere.webrootcloudav.com/zerol/wsasme.msi' -OutFile 'C:\wsasmi.msi'
+                    Write-Host -ForegroundColor Green "Installing Webroot"
+                    Start-Process msiexec.exe '/i "C:\wsasmi.msi" /quiet /norestart' -Wait
+                    Write-Host -ForegroundColor Green "Uninstalling Webroot"
+                    Start-Process msiexec.exe '/x "C:\wsasmi.msi" /quiet /norestart' -Wait
+                    # deleting the installer
+                    Remove-Item 'C:\wsasmi.msi'
+                    Write-Host -ForegroundColor Green "Uninstall complete. Please wait a minute and then check for success including for the now disabled WRSVC service, then manually reboot.
+                    You will typically still need to unregister Webroot from the Windows Security Center as well as get rid of leftover folders manually."
+                }
             } # if ParameterSet 'Webroot_Action'
             'IE' {
                 & 'C:\Program Files\Internet Explorer\iexplore.exe'
@@ -595,7 +637,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, `
-                    *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike*, *Rapport*, '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager'
+                    *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike*, *Rapport*, '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager', '*Sophos Connect*'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -783,7 +825,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Verbose 'Checking WD UILockdown status'
                     $UIStatus = (Get-ItemProperty 'hklm:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -ErrorAction SilentlyContinue).UILockdown
 
-                    Write-Verbose 'Checking Windows Tamper Protetion'
+                    Write-Verbose 'Checking Windows Defender Tamper Protetion'
                     if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) {
                         $TPStatus = (Get-MpComputerStatus -ErrorAction SilentlyContinue).IsTamperProtected
                     }
