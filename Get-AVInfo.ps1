@@ -526,7 +526,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
             } # if ParameterSet 'Symantec'
             'Avast' {
-                $Answer = Read-Host "Would you like to download and run the Avast Removal Tool? (Y/N)"
+                $Answer = Read-Host "Would you like to download and run the Avast Removal Tool? (AY/N)"
                 if ($Answer -eq 'Y') {   
                     Write-Verbose 'Downloading the Avast Removal tool'
                     # To account for Windows 7 machines, I don't use the Invoke-WebRequest cmdlet below
