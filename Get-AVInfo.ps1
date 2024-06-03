@@ -169,6 +169,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$RestartHuntressServices,
 
+        [Parameter(parametersetname = 'WindowsDefender_Action',
+            Mandatory = $false)]
+        [Switch]$HuntressInfo,
+
         [Parameter(ParameterSetName = 'Bitdefender_Action',
             Mandatory = $false)]
         [Switch]$UpdateBDDefs,
@@ -419,6 +423,21 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "`nStarting Huntress Services"
                     Start-Service Huntress* -ErrorAction SilentlyContinue -PassThru
                 }
+                if ($HuntressInfo) {
+                    Write-Verbose "Retrieving services, processes and Registry info"
+                    $Services = Get-Service Huntress* | Format-Table Name, DisplayName, Status, StartType -AutoSize
+                    $Processes = Get-Process Huntress*, *RIO* | Select-Object Name, Description, ProductVersion, StartTime, Id | Format-Table -AutoSize
+                    Write-Host -ForegroundColor Green "Huntress Services:"
+                    $Services
+                    if (!(Get-Service Huntress*)) {
+                        Write-Host "No Huntress services detected.`n"
+                    }
+                    Write-Host -ForegroundColor Green "Huntress Processes:"
+                    $Processes
+                    if (!(Get-Process Huntress*, *RIO*)) {
+                        Write-Host "No Huntress processes running.`n"
+                    }
+                }
             } # if ParameterSet 'WindowsDefender_Action'
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
@@ -570,7 +589,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     & "C:\MCPR.exe"
                 }
                 elseif ($Answer3 -eq 'N') {
-                    Write-Host -ForegroundColor Green "Tool will NOT be run.`nExiting script."
+                    Write-Host -ForegroundColor Green "NOT running the tool.`nExiting script."
                 }
             } # if ParameterSet 'McAfee_Action'
             'WSC_Action' {
@@ -591,8 +610,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $AV_Answer = Read-Host "Would you like to proceed? (Y/N)"
                     if ($AV_Answer -eq 'Y') {
                         Write-Host "Removing $_ from the Windows Security Center"
-                        Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname=$_" | Remove-WmiObject # ForEach-Object { $_.Delete() }
-                        Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname=$_" | Remove-WmiObject # ForEach-Object { $_.Delete() }
+                        Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -Filter "displayname=$_" -ErrorAction SilentlyContinue | Remove-WmiObject # ForEach-Object { $_.Delete() }
+                        Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiSpywareProduct -Filter "displayname=$_" -ErrorAction SilentlyContinue | Remove-WmiObject # ForEach-Object { $_.Delete() }
                         $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
                         $ASP = (Get-WmiObject -Namespace root\securitycenter2 -Class AntispywareProduct).DisplayName
                         Write-Host -ForegroundColor Green "`nAVs still registered with the Windows Security Center:"
@@ -637,7 +656,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, `
-                    *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike*, *Rapport*, '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager', '*Sophos Connect*'
+                    *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike*, *Rapport*, *Reason*, '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager', '*Sophos Connect*', '*N-able take control*', '*N-able Remote*'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -773,23 +792,27 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     } # if Get-Process
                 } # if $Vipre
                 elseif (!$DefaultOverride -or $WindowsDefender) {
-                    try {
-                        Write-Verbose -Message "Retrieving Windows Defender info"
-                        $WDStatus = Get-MpComputerStatus -ErrorAction Stop
-                        # $WDPreference = Get-MpPreference -ErrorAction Stop
-                        # $WDServices = $WDStatus | Select-Object *enable*
-                        $WDProps = [Ordered]@{
-                            'AMServiceEnabled'                                                  = $WDStatus.AMServiceEnabled
-                            'AntispywareEnabled'                                                = $WDStatus.AntispywareEnabled
-                            'AntivirusEnabled'                                                  = $WDStatus.AntivirusEnabled
-                            'BehaviorMonitorEnabled'                                            = $WDStatus.BehaviorMonitorEnabled
-                            'IoavProtectionEnabled (Scan all downloaded files and attachments)' = $WDStatus.IoavProtectionEnabled
-                            'NISEnabled (Network Realtime Inspection)'                          = $WDStatus.NISEnabled
-                            'OnAccessProtectionEnabled (file and program activity monitoring)'  = $WDStatus.OnAccessProtectionEnabled
-                            'RealTimeProtectionEnabled'                                         = $WDStatus.RealTimeProtectionEnabled
-                        }
-                        $WDObjEnabled = New-Object -TypeName psobject -Property $WDProps
-                        <#    
+                    if ( ((Get-WmiObject Win32_OperatingSystem).producttype -ne 1 ) -and ((Get-WindowsFeature | Where-Object { $_.Name -like 'windows-defender' }).Installed) -eq $false ) {
+                        $FeatureNotInstalled = $true
+                    } # if running server OS
+                    else {
+                        try {
+                            Write-Verbose -Message "Retrieving Windows Defender info"
+                            $WDStatus = Get-MpComputerStatus -ErrorAction Stop
+                            # $WDPreference = Get-MpPreference -ErrorAction Stop
+                            # $WDServices = $WDStatus | Select-Object *enable*
+                            $WDProps = [Ordered]@{
+                                'AMServiceEnabled'                                                  = $WDStatus.AMServiceEnabled
+                                'AntispywareEnabled'                                                = $WDStatus.AntispywareEnabled
+                                'AntivirusEnabled'                                                  = $WDStatus.AntivirusEnabled
+                                'BehaviorMonitorEnabled'                                            = $WDStatus.BehaviorMonitorEnabled
+                                'IoavProtectionEnabled (Scan all downloaded files and attachments)' = $WDStatus.IoavProtectionEnabled
+                                'NISEnabled (Network Realtime Inspection)'                          = $WDStatus.NISEnabled
+                                'OnAccessProtectionEnabled (file and program activity monitoring)'  = $WDStatus.OnAccessProtectionEnabled
+                                'RealTimeProtectionEnabled'                                         = $WDStatus.RealTimeProtectionEnabled
+                            }
+                            $WDObjEnabled = New-Object -TypeName psobject -Property $WDProps
+                            <#    
                         $Props = [Ordered]@{
                             'Signatures version'               = $WDStatus.AntispywareSignatureVersion
                             'Version created on'               = $WDStatus.AntispywareSignatureLastUpdated
@@ -798,30 +821,30 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             'Signatures out of date'           = $WDStatus.DefenderSignaturesOutOfDate
                         }
                         #>
-                        $Props = [Ordered]@{
-                            'Antivirus Signatures'   = $WDStatus.AntivirusSignatureLastUpdated
-                            'Antispyware Signatures' = $WDStatus.AntispywareSignatureLastUpdated
-                            'NIS Signatures'         = $WDStatus.NISSignatureLastUpdated
-                        }
-                        $WDObj = New-Object -TypeName psobject -Property $Props
+                            $Props = [Ordered]@{
+                                'Antivirus Signatures'   = $WDStatus.AntivirusSignatureLastUpdated
+                                'Antispyware Signatures' = $WDStatus.AntispywareSignatureLastUpdated
+                                'NIS Signatures'         = $WDStatus.NISSignatureLastUpdated
+                            }
+                            $WDObj = New-Object -TypeName psobject -Property $Props
 
-                        $Props_detailed = [Ordered]@{
-                            'Antispyware Signatures created on' = $WDStatus.AntispywareSignatureLastUpdated
-                            'Antispyware Signatures age'        = $WDStatus.AntispywareSignatureAge
-                            'Antispyware Signatures version'    = $WDStatus.AntispywareSignatureVersion
-                            "`nAntivirus Signatures created on" = $WDStatus.AntivirusSignatureLastUpdated
-                            'Antivirus Signatures age'          = $WDStatus.AntivirusSignatureAge
-                            'Antivirus Signatures version'      = $WDStatus.AntivirusSignatureVersion
-                            "`nNIS Signatures created on"       = $WDStatus.NISSignatureLastUpdated
-                            'NIS Signatures age'                = $WDStatus.NISSignatureAge
-                            'NIS Signatures version'            = $WDStatus.NISSignatureVersion
+                            $Props_detailed = [Ordered]@{
+                                'Antispyware Signatures created on' = $WDStatus.AntispywareSignatureLastUpdated
+                                'Antispyware Signatures age'        = $WDStatus.AntispywareSignatureAge
+                                'Antispyware Signatures version'    = $WDStatus.AntispywareSignatureVersion
+                                "`nAntivirus Signatures created on" = $WDStatus.AntivirusSignatureLastUpdated
+                                'Antivirus Signatures age'          = $WDStatus.AntivirusSignatureAge
+                                'Antivirus Signatures version'      = $WDStatus.AntivirusSignatureVersion
+                                "`nNIS Signatures created on"       = $WDStatus.NISSignatureLastUpdated
+                                'NIS Signatures age'                = $WDStatus.NISSignatureAge
+                                'NIS Signatures version'            = $WDStatus.NISSignatureVersion
+                            }
+                            $WDObj_detailed = New-Object -TypeName psobject -Property $Props_detailed
+                        } # try
+                        catch {
+                            $WDMessage = $($Error[0])
                         }
-                        $WDObj_detailed = New-Object -TypeName psobject -Property $Props_detailed
-                    } # try
-                    catch {
-                        $WDMessage = $($Error[0])
-                    }
-
+                    } # if not running server OS
                     Write-Verbose 'Checking WD UILockdown status'
                     $UIStatus = (Get-ItemProperty 'hklm:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration\' -ErrorAction SilentlyContinue).UILockdown
 
@@ -900,9 +923,23 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 if (Test-Path 'C:\Program Files\Sophos' -PathType Container) {
                     Write-Verbose "Checking Sophos Tamper Protection status"
                     # https://support.sophos.com/support/s/article/KB-000043008?language=en_US
-                    $Sophos = & 'C:\Program Files\Sophos\Endpoint Defense\SEDcli.exe' -status -ErrorAction SilentlyContinue
+                    try {
+                        $Sophos = & 'C:\Program Files\Sophos\Endpoint Defense\SEDcli.exe' -status
+                    }
+                    catch {}
                     if ($Sophos -like "*Enabled*") {
                         $SophosTPEnabled = $true
+                    }
+                }
+
+                if (Test-Path 'C:\Program Files (x86)\Trend Micro' -PathType Container) {
+                    Write-Verbose "Checking Trend Micro Tamper Protection status"
+                    try {
+                        $TrendTP = (Get-ItemProperty 'HKLM:\SOFTWARE\\Wow6432Node\TrendMicro\PC-cillinNTCorp\CurrentVersion\Misc.' -ErrorAction SilentlyContinue).('Allow Uninstall')
+                    }
+                    catch {}
+                    if ($TrendTP -eq '0') {
+                        $TrendTPEnabled = $true
                     }
                 }
 
@@ -1042,7 +1079,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Cyan "$($Blocked)"  
                 } # elseif $Vipre
                 elseif (!$DefaultOverride) {
-                    if ($WDMessage) {
+                    if ($FeatureNotInstalled) {
+                        Write-Host -ForegroundColor Green "This machine is running server OS and the Windows Defender feature is NOT installed."
+                    }
+                    elseif ($WDMessage) {
                         Write-Host -ForegroundColor Green "Windows Defender Info:"
                         Write-Warning "Error retrieving Windows Defender info.`nError message: $($WDMessage)"
                     }
@@ -1091,6 +1131,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 
                 if ($SophosTPEnabled -eq $true) {
                     Write-Warning "Sophos Tamper Protection is enabled on this machine."
+                }
+
+                if ($TrendTPEnabled -eq $true) {
+                    Write-Warning "Trend Micro Tamper Protection is enabled on this machine."
                 }
 
                 if ($BT) { Write-Host -ForegroundColor Cyan $BT }
