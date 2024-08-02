@@ -227,6 +227,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$UninstallWebroot,
         
+        [Parameter(parametersetname = 'Webroot_Action',
+            Mandatory = $false)]
+        [Switch]$UninstallWebroot1,
+        
         # for troubleshooting access to AV update URLs backstage
         [Parameter(ParameterSetName = 'IE',
             Mandatory = $false)]
@@ -365,8 +369,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 }
                 if ($UpdateWDDefs) {
                     Write-Verbose "Updating Windows Defender definitions"
-                    # Can also use 'Update-MpSignature', but it returns less verbose output than the below command
                     & 'C:\Program Files\Windows Defender\MpCmdRun.exe' -SignatureUpdate
+                    # Can also use 'Update-MpSignature', but it returns less verbose output than the above command
+                    # Error codes and their meanings: https://learn.microsoft.com/en-us/archive/technet-wiki/15260.windows-update-agent-error-codes
                 }
                 if ($ResetWDDefs) {
                     Write-Verbose "Removing the current definitions and reloading them"
@@ -571,7 +576,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         Write-Host -ForegroundColor Green "Tool already present at 'C:\Windows\Temp\NRnR.exe'"
                     }
                     Write-Host -ForegroundColor Green "Running the tool. Please wait."
-                    Write-Warning "If you're using CWC backstage the GUI won't show properly."
+                    Write-Warning "If you're using CWC backstage the GUI won't show properly.`nYou can try blindly navigating the GUI using the following tutorial:`
+                    https://www.youtube.com/watch?v=x3jqCV1bgSQ&list=PLMHhjKfBkIZSd1UlxoZXsq5_m3E3HPtED"
                     Start-Process "C:\Windows\Temp\NRnR.exe"
                 } # if 'Y'
                 elseif ($Answer -eq 'N') {
@@ -636,7 +642,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $ASP
                 }
                 if ($UninstallWebroot) {
-                    #for uninstalling webroot by installing with an msi on top of the existing install then uninstalling with the same msi right after
+                    # for uninstalling webroot by installing with an msi on top of the existing install then uninstalling with the same msi right after
                     Write-Host -ForegroundColor Green "Downloading Webroot installer"
                     Invoke-WebRequest -Uri 'http://anywhere.webrootcloudav.com/zerol/wsasme.msi' -OutFile 'C:\wsasmi.msi'
                     Write-Host -ForegroundColor Green "Installing Webroot"
@@ -645,8 +651,19 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Start-Process msiexec.exe '/x "C:\wsasmi.msi" /quiet /norestart' -Wait
                     # deleting the installer
                     Remove-Item 'C:\wsasmi.msi'
-                    Write-Host -ForegroundColor Green "Uninstall complete. Please wait a minute and then check for success including for the now disabled WRSVC service, then manually reboot.
-                    You will typically still need to unregister Webroot from the Windows Security Center as well as get rid of leftover folders manually."
+                    Write-Host -ForegroundColor Green "Uninstall complete. Please wait a minute or two and then check for success including for the now disabled WRSVC service, then manually reboot.`
+                    `nYou will typically still need to unregister Webroot from the Windows Security Center as well as get rid of leftover folders manually."
+                }
+                if ($UninstallWebroot1) {
+                    # for uninstalling older Webroot software using the CleanWDF tool (when the first method doesn't work)
+                    # https://answers.webroot.com/Webroot/ukp.aspx?pid=17&app=vw&vw=1&solutionid=1034&t=SecureAnywhere-You-need-help-uninstalling-legacy-Webroot-software
+                    Write-Host -ForegroundColor Green "Downloading Webroot's CleanWDF removal/cleanup tool"
+                    Invoke-WebRequest -Uri 'https://download.webroot.com/CleanWDF.exe' -OutFile 'C:\CleanWDF.exe'                   
+                    Write-Host -ForegroundColor Green "Running the tool`nClick the Clean button to begin the cleanup process. This process runs very quickly."
+                    Start-Process 'C:\CleanWDF.exe' -Wait
+                    # deleting the tool
+                    Remove-Item 'C:\CleanWDF.exe'
+                    Write-Host -ForegroundColor Green "Uninstall Complete. Please reboot."
                 }
             } # if ParameterSet 'Webroot_Action'
             'IE' {
@@ -655,8 +672,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
-                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *N-able*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, `
-                    *WRCoreService*, *WRSkyClient*, *WRSVC*, *CrowdStrike*, *Rapport*, *Reason*, '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager', '*Sophos Connect*', '*N-able take control*', '*N-able Remote*'
+                $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *santivirus*, *segurazo*, `
+                    *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, *WRCoreService*, *WRSkyClient*, *WRSVC*, *WRSMSVC*, *CrowdStrike*, *Rapport*, *Reason*, `
+                    '*HP Sure Sense*', '*SAS Core*' -Exclude *firewall*, '*AMD Crash*', '*LDK License Manager', '*Sophos Connect*' #, '*Take Control Agent*', '*N-able Remote*'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
                 # The AVs registered with the Windows Security Center are stored in the Registry at 'HKLM:\SOFTWARE\Microsoft\Security Center\Provider\Av\*'.
@@ -810,6 +828,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 'NISEnabled (Network Realtime Inspection)'                          = $WDStatus.NISEnabled
                                 'OnAccessProtectionEnabled (file and program activity monitoring)'  = $WDStatus.OnAccessProtectionEnabled
                                 'RealTimeProtectionEnabled'                                         = $WDStatus.RealTimeProtectionEnabled
+                                #'Reboot Required'                                                   = $WDStatus.RebootRequired
                             }
                             $WDObjEnabled = New-Object -TypeName psobject -Property $WDProps
                             <#    
@@ -983,7 +1002,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         'SysDriveSize (GB)'                    = $LD.Size / 1GB -as [int]
                         'SysDriveFreeSpace (GB)'               = $LD.FreeSpace / 1GB -as [int]
                         'LastBootTime'                         = $OS.LastBootUpTime
-                        'Uptime'                               = "{0:dd}d:{0:hh}h:{0:mm}m" -f $UT
+                        'Uptime'                               = "{ 0:dd }d: { 0:hh }h: { 0:mm }m" -f $UT
                         'FastBoot'                             = if ( $null -ne $FastBoot ) { if ($FastBoot -eq 0) { 'Not enabled' } else { 'Enabled' } } else { 'RegKeyNotPresent' }
                     }
                     $Obj = New-Object -TypeName psobject -Property $Props
@@ -991,7 +1010,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
                 if ($AVFolders -or $DeleteAVFolders) {
                     Write-Verbose "Looking for AV folders"
-                    $Name = "*vipre*", "*trend*", "*sophos*", "*N-able*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*", "*Trusteer*", "*SuperAntiSpyware*", "*CrowdStrike*"
+                    $Name = "*vipre*", "*trend*", "*sophos*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", `
+                        "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*", "*Trusteer*", "*SuperAntiSpyware*", "*CrowdStrike*", "*Managed Antivirus*", "*ReasonLabs*" #,"*N-able*"
                     $Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name -Exclude "*RemoteSetup*" -ErrorAction SilentlyContinue
                     $AV_Folders = $Folders | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }, CreationTime
                     if ($DeleteAVFolders) {
