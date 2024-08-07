@@ -214,6 +214,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$McAfeeUninstall,
 
+        [Parameter(parametersetname = 'Malwarebytes_Action',
+            Mandatory = $false)]
+        [Switch]$MalwarebytesUninstall,
+
         [Parameter(parametersetname = 'WSC_Action',
             Mandatory = $false)]
         [Switch]$UnregisterAV,
@@ -598,6 +602,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "NOT running the tool.`nExiting script."
                 }
             } # if ParameterSet 'McAfee_Action'
+            'Malwarebytes_Action' {
+                # for uninstalling Malwarebytes using the built-in uninstaller
+                Write-Verbose "Running the tool"
+                & "C:\Program Files\Malwarebytes\Anti-Malware\mb5uns.exe"
+                # can also use the Support Tool if needed: https://support.malwarebytes.com/hc/en-us/articles/360039023473-Uninstall-and-reinstall-Desktop-Security-with-the-Support-Tool
+            } # if ParameterSet 'Malwarebytes_Action'
             'WSC_Action' {
                 Write-Host -ForegroundColor Green "The folowing AVs are registered with the Windows Security Center:"
                 $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
@@ -1002,7 +1012,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         'SysDriveSize (GB)'                    = $LD.Size / 1GB -as [int]
                         'SysDriveFreeSpace (GB)'               = $LD.FreeSpace / 1GB -as [int]
                         'LastBootTime'                         = $OS.LastBootUpTime
-                        'Uptime'                               = "{ 0:dd }d: { 0:hh }h: { 0:mm }m" -f $UT
+                        'Uptime'                               = "{0:dd}d: {0:hh}h: {0:mm}m" -f $UT
                         'FastBoot'                             = if ( $null -ne $FastBoot ) { if ($FastBoot -eq 0) { 'Not enabled' } else { 'Enabled' } } else { 'RegKeyNotPresent' }
                     }
                     $Obj = New-Object -TypeName psobject -Property $Props
@@ -1010,8 +1020,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
                 if ($AVFolders -or $DeleteAVFolders) {
                     Write-Verbose "Looking for AV folders"
-                    $Name = "*vipre*", "*trend*", "*sophos*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", "*malware*", "*kaspersky*", "*sentinel*", `
-                        "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*", "*Trusteer*", "*SuperAntiSpyware*", "*CrowdStrike*", "*Managed Antivirus*", "*ReasonLabs*" #,"*N-able*"
+                    $Name = "*vipre*", "*trend*", "*sophos*", "*symantec*", "*eset*", "*webroot*", "*cylance*", "*mcafee*", "*avg*", "*santivirus*", "*segurazo*", "*avira*", "*norton*", `
+                        "*malware*", "*kaspersky*", "*sentinel*", "*avast*", "*spyware*", "*spybot*", "*WRCore*", "*WRData*", "*Trusteer*", "*SuperAntiSpyware*", "*CrowdStrike*", `
+                        "*Managed Antivirus*", "*ReasonLabs*", "Bitdefender", "bdkitinstaller", "bdlogging"  #,"*N-able*"
                     $Folders = Get-Item -Path 'C:\Program Files\*', 'C:\Program Files (x86)\*', 'C:\ProgramData\*' -Include $Name -Exclude "*RemoteSetup*" -ErrorAction SilentlyContinue
                     $AV_Folders = $Folders | Select-Object @{n = 'FolderName'; e = { $_.Name } }, @{n = 'FullPath'; e = { $_.FullName } }, CreationTime
                     if ($DeleteAVFolders) {
@@ -1122,7 +1133,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     if ( $RegKey -and ($RegKey -contains 1) ) {
                         Write-Host -ForegroundColor Green "Windows Defender Registry key:"
                         # "Windows Defender is disabled via the 'DisableAntiSpyware' Registry key at the following location: $($RegKey.PSPath.split('::')[2]).`nTo re-enable, either set the value back to '0', delete the key, or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
-                        "Windows Defender is disabled in the Registry."#"`nTo re-enable, assuming no third-part AVs are running, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
+                        Write-Host -ForegroundColor Red "Windows Defender is disabled in the Registry."#"`nTo re-enable, assuming no third-part AVs are running, either set the value of the applicable key(s) back to '0', delete the key(s), or simply re-run this script with the 'EnableWDRegKey' parameter (use the 'EnableWD' parameter to then turn on Windows Defender)."
                         #"`nNote: If Group Policy is configured to disable Windows Defender, the registry key will revert back to '1', with the next group policy update. To test, run 'gpupdate /force' afer the Registry change.`n"
                     }
                     if ($UIStatus -eq 1) {
