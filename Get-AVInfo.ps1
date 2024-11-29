@@ -56,6 +56,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
     Output (if any)
 .NOTES
     This script can be run on a machine in Automate, backstage. Simply paste the contents of this function into the shell and press enter, to load the script into memory. Then, just run 'Get-AVInfo', along with whatever parameters, if any, you want to add.
+    You can also run "wget -uri 'https://raw.githubusercontent.com/stangh/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing | iex" to download and load the script into memory.
     
     =================================
     Author: Eliyohu Stengel
@@ -197,6 +198,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
         [Parameter(parametersetname = 'Default_Override')]
         [Switch]$MachineInfo,
 
+        [Parameter(parametersetname = 'Vipre')]
+        [Parameter(parametersetname = 'Bitdefender')]
+        [Parameter(parametersetname = 'WindowsDefender')]
+        [Parameter(parametersetname = 'Default_Override')]
+        [Switch]$IncludeProcesses,
+
         # for the TT Symantec ticket only
         [Parameter(parametersetname = 'Symantec',
             Mandatory = $false)]
@@ -250,7 +257,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
         [Parameter(parametersetname = 'RMM',
             Mandatory = $false)]
-        [Switch]$FindRMM
+        [Switch]$FindRMM,
+
+        [Parameter(parametersetname = 'PendingReboot',
+            Mandatory = $false)]
+        [Switch]$RebootStatus
     )
 
     BEGIN {
@@ -608,7 +619,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             } # if ParameterSet 'Norton
             'McAfee_Action' {
                 # for uninstalling McAfee using MCPR when the regular uninstall methods aren't working
-                Write-Host -ForegroundColor Green "Downloading the McAfee Consumer Product Removal Tool (MCPR) tool"
+                Write-Host -ForegroundColor Green "Downloading the MCPR (McAfee Consumer Product Removal) Tool"
                 Invoke-WebRequest -Uri 'https://download.mcafee.com/molbin/iss-loc/SupportTools/MCPR/MCPR.exe' -OutFile 'C:\MCPR.exe'
                 Write-Host -ForegroundColor Green "Download saved to 'C:\MCPR.exe'"
                 $Answer3 = Read-Host "Run the tool? (Y/N)"
@@ -734,7 +745,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 # Execute a silent uninstall in the background with no UI.
                                 # $UninstallCommand = "$uninstallString /qn /noreboot REBOOT=REALLYSUPPRESS"
                                 # Execute a silent uninstall with a basic UI.
-                                $UninstallCommand = "$uninstallString /qb /noreboot REBOOT=REALLYSUPPRESS"
+                                $UninstallCommand = "$uninstallString /qr /noreboot REBOOT=REALLYSUPPRESS"
                                 cmd.exe /c $UninstallCommand 
                             } # foreach
                         } # if 'Y' 
@@ -742,7 +753,8 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             foreach ($App in $sorted_HP_Wolf) {
                                 $UninstallString = $App.UninstallString.Replace('/I', '/X')
                                 # Execute a silent uninstall in the background with a basic UI.
-                                $UninstallCommand = "$uninstallString /qb /noreboot REBOOT=REALLYSUPPRESS"
+                                # $UninstallCommand = "$uninstallString /qr /noreboot REBOOT=REALLYSUPPRESS"
+                                $UninstallCommand = "$uninstallString /noreboot REBOOT=REALLYSUPPRESS"
                                 $Answer = Read-Host "`nUninstall $($App.DisplayName)? (Y/N)"
                                 if ($Answer -eq 'Y') {
                                     Write-Host -ForegroundColor Green "`nUninstalling $($App.DisplayName)"
@@ -762,7 +774,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             Write-Host "================================================"
                             Write-Host -ForegroundColor Green "`nAVs registered with the Windows Security Center:"
                             $AVP
-                            $Answer = Read-Host "`nUnregister HP Wolf Security from the Windows Security Center? (Y/N)"
+                            $Answer = Read-Host "`nUnregister HP Wolf Security from the Windows Security Center? (Y/N)`n(Only choose 'Y' if the main HP Wolf security products successfully uninstalled.)"
                             if ($Answer -eq 'Y') {
                                 Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object DisplayName -like "*HP Wolf*" | Remove-WmiObject
                                 $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
@@ -770,7 +782,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 $AVP
                             }
                             else {
-                                Write-Host "Not unregistering HP Wolf from the Windows Security Center."
+                                Write-Host -ForegroundColor Green "Not unregistering HP Wolf from the Windows Security Center."
                             }   
                         } # if HP Wolf is registered in WSC      
                     } # if $HP_Wolf
@@ -795,8 +807,26 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     $RMMs  
                 }
                 break
-            }
-                    
+            } # if ParameterSet 'RMM'
+            'PendingReboot' {
+                # checks if machine is pending a reboot using a PowerShell module from Brian Wilhite
+                # https://www.powershellgallery.com/packages/PendingReboot/0.9.0.6
+                if (!(Get-Module PendingReboot -ListAvailable)) {
+                    if ("NuGet" -notin (Get-PackageProvider).Name) {
+                        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false
+                    }
+                    Install-Module -Name PendingReboot -Confirm:$false
+                } # if module not installed
+                $ExecutionPolicy = Get-ExecutionPolicy
+                if ($ExecutionPolicy -eq "Restricted") {
+                    Set-ExecutionPolicy RemoteSigned
+                }
+                Import-Module PendingReboot
+                Test-PendingReboot -SkipConfigurationManagerClientCheck -Detailed   
+                if ($ExecutionPolicy -eq "Restricted") {
+                    Set-ExecutionPolicy Restricted
+                }            
+            } # if ParameterSet 'PendingReboot'       
             Default {
                 Write-Verbose -Message "Retrieving AVs by querying services"
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, `
@@ -1048,10 +1078,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         if ($A -ne $true) { $WD_Services_Disabled = $true; break }
                     } # foreach
                     if (!$RTP_Key -and $WD_Services_Disabled) {
-                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
+                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, try setting the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
                     } # if !$RTP_Key
                     elseif (($RTP_Key).DisableRealtimeMonitoring -eq 1) { 
-                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, please set the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
+                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, try setting the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
                     } # elseif $RTP_Key
 
                     if ($Server) {
@@ -1170,12 +1200,23 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
                 Write-Verbose -Message "Writing results to the screen"
 
-                Write-Host -ForegroundColor Green "`nAntivirus software present on the machine (pulled from installed services):"
+                Write-Host -ForegroundColor Green "`nAntivirus software services present on the machine:"
                 if (!$Services) {
                     Write-Output `n
                 }
                 else {
                     Write-Output $Services | Sort-Object DisplayName | Format-Table Status, StartType, Name, DisplayName -AutoSize
+                }
+
+                if ($IncludeProcesses) {
+                    Write-Host -ForegroundColor Green "`nAntivirus software processes running on the machine:"
+                    $WMI_Services = Get-WmiObject Win32_Service | Where-Object { $_.Name -in $Services.Name }
+                    foreach ($S in $Services) {
+                        $ProcessID = ($WMI_Services | Where-Object { $_.Name -eq $S.Name }).ProcessID
+                        if ($ProcessID -ne 0) {
+                            Get-Process @Parameters | Format-Table @{n = "ServiceName"; e = { $S.Name } }, @{n = "ProcessName"; e = { $_.Name } }, Id, StartTime
+                        }
+                    }
                 }
 
                 Write-Host -ForegroundColor Green "Antivirus software registered with the Windows Security Center (queried from the SecurityCenter2 namespace using WMI):"
