@@ -20,7 +20,7 @@ Feel free to message me with any questions or suggestions.
 ---
 
 This script retrieves information pertaining to the various antivirus programs installed on a machine:
-- It returns a list of AVs installed on a machine pulled from installed services (using a static list)
+- It returns a list of AVs by querying installed services (using a static list)
 - It returns a list of AVs on a machine registered in the Windows Security Center
 - It returns a list of AVs installed on a machine as seen in the AV part of the Registry
 
@@ -33,29 +33,52 @@ This script can also perform the following useful actions:
     - Reset Windows Defender definitions
     - Return which components of Windows Defender are enabled and which are not
     - Test if Windows Defender is disabled in the Registry
-    - Enable Windows Defender in the Registry
+    - Enable Windows Defender in the Registry by creating or setting the applicable Windows Defender registry keys
     - Enable Windows Defender if it is disabled
     - Disable UI lockdown
     - Enable UI lockdown
     - Test if Tamper Protection is enabled
+    - Open the MpCmdRun.log file
+    - Install the Windows Defender feature on servers
+    - Manually update NIS definitions (for specific use cases)
 - **Vipre**
     - Update Vipre definitions
     - Enable Vipre when it is disabled
     - Enable Vipre Active Protection if it is disabled
     - Rename the definitions folder (for when definitions are corrupted)
     - Test if the machine is being blocked from reaching the Vipre portal (due to a web content filter for ex.)
-    - Download (transfer from a share) and install Vipre
+    - Download (via share transfer) and install Vipre
     - Test for Vipre version 12.0 (buggy version)
-    - Test for (incompatible) ARM processors
-    - Run an ongoing test to check if defs are curently updating and let you know when they're finished updating
-    - Run an ongoing test to check if an agent is shut down and let you know once it's shutdown (for when an agent shutdown command is initiated from the Vipre portal)
-    - Uninstall Vipre
+    - Test for (Vipre-incompatible) ARM processors
+    - Check if defs are curently updating and let you know when they're finished updating
+    - Check if the Vipre agent is shut down and, if it isn't, let you know once it's shutdown (to be used for ex. when an agent shutdown command is initiated from the Vipre portal)
+    - Install Vipre (via share transfer)
+    - Uninstall Vipre (using the Vipre Removal Tool)
 - **Sophos**
     - Test if Sophos Tamper Protection is enabled
 - **Symantec**
-    - Download (transfer from a share) and run the CleanWipe utility
+    - Download (via share transfer) and run the CleanWipe utility
+- **Avast**
+    - Download and run the Avast Removal Tool
+- **Norton**
+    - Download and run the Norton Remove and Reinstall tool
+- **McAfee**
+    - Download and run the McAfee Consumer Product Removal tool
+- **Malwarebytes**
+    - Run the built-in Malwarebytes uninstaller
+- **Kaspersky**
+    - Download and run the kavremover tool
+- **Webroot**
+    - Uninstall Webroot by installing an msi on top of the existing installation and then uninstall using the same msi right after
+    - Uninstall Webroot by downloading and running the CleanWDF tool
+- **HP Wolf**
+    - Uninstall HP Wolf security products in a specific order
 - **Unregister AV**
-    - Unregister an AV from the Windows Security Center
+    - Unregister AVs from the Windows Security Center
+- **RMMs**
+    - Check for the presence of specific RMM tools
+- **Pending Reboot**
+    - Check if a machine is pending a reboot
 - **Return information about the Hardware, Operating System and User**
 
 ### Help
