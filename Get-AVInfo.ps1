@@ -221,6 +221,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$McAfeeUninstall,
 
+        [Parameter(parametersetname = 'McAfee_Action',
+            Mandatory = $false)]
+        [Switch]$McAfeeUninstall1,
+
         [Parameter(parametersetname = 'Malwarebytes_Action',
             Mandatory = $false)]
         [Switch]$MalwarebytesUninstall,
@@ -387,7 +391,6 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Verbose "Creating or setting the applicable Windows Defender registry keys"
                     Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0 -ErrorAction SilentlyContinue
                     Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiSpyware' -Value 0 -ErrorAction SilentlyContinue
-                 
                     Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Defender' -Name 'DisableAntiVirus' -Value 0 -ErrorAction SilentlyContinue
                 }
                 if ($EnableWD) {
@@ -480,7 +483,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             'Bitdefender_Action' {
                 Write-Verbose "Updating Bitdefender definitions"
                 & "C:\Program Files\Bitdefender\Endpoint Security\product.console.exe" /c StartUpdate
-            }
+            } # if ParameterSet 'Bitdefender_Action'
             'Vipre_Install' {
                 $Answer = Read-Host "Would you like to download the Vipre installer to the machine? (Y/N)"
                 if ($Answer -eq 'Y') {
@@ -533,6 +536,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
                                 Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
                                 $UninstallString = $A.UninstallString
+                                if (($UninstallString -match '.exe') -and ($UninstallString -notmatch '\.exe"')) {
+                                    # Wrap the exe part of the uninstall string with quotes, if spaces are included in the string
+                                    $UninstallString = $UninstallString -replace '^(.*?\.exe)', '"$1"'
+                                }
                                 if ($UninstallString -like '*/I*') {
                                     $UninstallCommand = $UninstallString.Replace('/I', '/X')
                                 }
@@ -618,17 +625,50 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 } # if 'N'
             } # if ParameterSet 'Norton
             'McAfee_Action' {
-                # for uninstalling McAfee using MCPR when the regular uninstall methods aren't working
-                Write-Host -ForegroundColor Green "Downloading the MCPR (McAfee Consumer Product Removal) Tool"
-                Invoke-WebRequest -Uri 'https://download.mcafee.com/molbin/iss-loc/SupportTools/MCPR/MCPR.exe' -OutFile 'C:\MCPR.exe'
-                Write-Host -ForegroundColor Green "Download saved to 'C:\MCPR.exe'"
-                $Answer3 = Read-Host "Run the tool? (Y/N)"
-                if ($Answer3 -eq 'Y') {
-                    Write-Verbose "Running the tool"
-                    & "C:\MCPR.exe"
-                }
-                elseif ($Answer3 -eq 'N') {
-                    Write-Host -ForegroundColor Green "NOT running the tool.`nExiting script."
+                if ($McAfeeUninstall) {
+                    # Uninstall McAfee products using the built-in uninstallers
+                    $App = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object displayname -like *mcafee*
+                    if (!$App) {
+                        Write-Host "McAfee is not installed.`nExiting."
+                    }
+                    else {
+                        foreach ($A in $App) {
+                            $Answer = Read-Host "Are you sure you want to uninstall $($A.DisplayName)? (Y/N)"
+                            if ($Answer -eq 'Y') {
+                                Write-Verbose "Retrieving uninstall string for app $($A.DisplayName)"
+                                $UninstallString = $A.UninstallString
+                                if (($UninstallString -match '.exe') -and ($UninstallString -notmatch '\.exe"')) {
+                                    # Wrap the exe part of the uninstall string with quotes, if spaces are included in the string
+                                    $UninstallString = $UninstallString -replace '^(.*?\.exe)', '"$1"'
+                                }
+                                if ($UninstallString -like '*/I*') {
+                                    $UninstallCommand = $UninstallString.Replace('/I', '/X')
+                                }
+                                else {
+                                    $UninstallCommand = $UninstallString
+                                }
+                                Write-Verbose "Uninstalling $A.DisplayName"
+                                cmd.exe /c $($uninstallcommand)
+                            } # if $Answer -eq 'Y'
+                            else {
+                                Write-Host "Cancelling uninstall of $($A.DisplayName)."
+                            } # else $Answer -eq 'N'
+                        } # foreach $A in $App
+                    } # else $App
+                } # if $McAfeeUnintsall
+                elseif ($McAfeeUninstall1) {
+                    # for uninstalling McAfee using MCPR when the built-in McAfee uninstall methods aren't working
+                    Write-Host -ForegroundColor Green "Downloading the MCPR (McAfee Consumer Product Removal) Tool"
+                    Invoke-WebRequest -Uri 'https://download.mcafee.com/molbin/iss-loc/SupportTools/MCPR/MCPR.exe' -OutFile 'C:\MCPR.exe'
+                    Write-Host -ForegroundColor Green "Download saved to 'C:\MCPR.exe'"
+                    $Answer3 = Read-Host "Run the tool? (Y/N)"
+                    if ($Answer3 -eq 'Y') {
+                        Write-Verbose "Running the tool"
+                        & "C:\MCPR.exe"
+                    }
+                    elseif ($Answer3 -eq 'N') {
+                        Write-Host -ForegroundColor Green "NOT running the tool.`nExiting script."
+                    }
                 }
             } # if ParameterSet 'McAfee_Action'
             'Malwarebytes_Action' {
@@ -813,7 +853,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                 # https://www.powershellgallery.com/packages/PendingReboot/0.9.0.6
                 if (!(Get-Module PendingReboot -ListAvailable)) {
                     if ("NuGet" -notin (Get-PackageProvider).Name) {
-                        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false
+                        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false | Out-Null
+                    }
+                    if ((Get-PSRepository -Name 'PSGallery').InstallationPolicy -ne 'Trusted') {
+                        Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted
                     }
                     Install-Module -Name PendingReboot -Confirm:$false
                 } # if module not installed
@@ -1200,7 +1243,7 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
 
                 Write-Verbose -Message "Writing results to the screen"
 
-                Write-Host -ForegroundColor Green "`nAntivirus software services present on the machine:"
+                Write-Host -ForegroundColor Green "`nAntivirus services present on the machine:"
                 if (!$Services) {
                     Write-Output `n
                 }
