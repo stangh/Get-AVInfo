@@ -774,7 +774,21 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             "HP Wolf Security Application Support for Office"
                             "HP Wolf Security Application Support for Chrome*"
                         )
-                        $sorted_HP_Wolf = $HP_Wolf | Sort-Object -Property { $sortOrder.IndexOf($_.DisplayName) }
+                        # $sorted_HP_Wolf = $HP_Wolf | Sort-Object -Property { $sortOrder.IndexOf($_.DisplayName) }
+                        # Not using this ^ since I need to account for wilcards in the $sortOrder array
+                        # Custom sort function to handle wildcards
+                        function Get-SortIndex {
+                            param (
+                                [string]$displayName
+                            )
+                            for ($i = 0; $i -lt $sortOrder.Count; $i++) {
+                                if ($sortOrder[$i] -like $displayName) {
+                                    return $i
+                                }
+                            }
+                            return [int]::MaxValue
+                        }
+                        $sorted_HP_Wolf = $HP_Wolf | Sort-Object -Property { Get-SortIndex $_.DisplayName }
                         Write-Host -ForegroundColor Green "The following HP Wolf Security products are installed on the machine:"
                         $sorted_HP_Wolf.DisplayName
                         $Answer = Read-Host "`nUninstall the HP products listed above? ('Y' to uninstall all / 'C' to choose which to uninstall / 'N' to cancel)"
@@ -783,10 +797,11 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 Write-Host -ForegroundColor Green "`nUninstalling $($App.DisplayName)"
                                 $UninstallString = $App.UninstallString.Replace('/I', '/X')
                                 # Execute a silent uninstall in the background with no UI.
-                                # $UninstallCommand = "$uninstallString /qn /noreboot REBOOT=REALLYSUPPRESS"
+                                $UninstallCommand = "$uninstallString /qn /noreboot REBOOT=REALLYSUPPRESS"
                                 # Execute a silent uninstall with a basic UI.
-                                $UninstallCommand = "$uninstallString /qr /noreboot REBOOT=REALLYSUPPRESS"
+                                # $UninstallCommand = "$uninstallString /qr /noreboot REBOOT=REALLYSUPPRESS"
                                 cmd.exe /c $UninstallCommand 
+                                # Start-Process cmd -ArgumentList "/c $($UninstallCommand)" -NoNewWindow
                             } # foreach
                         } # if 'Y' 
                         elseif ($Answer -eq 'C') {
@@ -794,11 +809,13 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                                 $UninstallString = $App.UninstallString.Replace('/I', '/X')
                                 # Execute a silent uninstall in the background with a basic UI.
                                 # $UninstallCommand = "$uninstallString /qr /noreboot REBOOT=REALLYSUPPRESS"
-                                $UninstallCommand = "$uninstallString /noreboot REBOOT=REALLYSUPPRESS"
+                                # Execute a silent uninstall in the background with no UI.
+                                $UninstallCommand = "$uninstallString /qn /noreboot REBOOT=REALLYSUPPRESS"
                                 $Answer = Read-Host "`nUninstall $($App.DisplayName)? (Y/N)"
                                 if ($Answer -eq 'Y') {
                                     Write-Host -ForegroundColor Green "`nUninstalling $($App.DisplayName)"
                                     cmd.exe /c $UninstallCommand
+                                    # Start-Process cmd -ArgumentList "/c $($UninstallCommand)" -NoNewWindow
                                 }
                                 else {
                                     Write-Host "Cancelling uninstall of $($App.DisplayName)."
@@ -808,7 +825,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                         else {
                             Write-Host -ForegroundColor Green "Uninstallation cancelled.`nExiting Script."
                             break
-                        } # else 'N'
+                        } # else 'N'  
+                    } # if $HP_Wolf
+                    function Unregister-HPWolf {
                         $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
                         if ($AVP -match "Wolf") {
                             Write-Host "================================================"
@@ -824,8 +843,9 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                             else {
                                 Write-Host -ForegroundColor Green "Not unregistering HP Wolf from the Windows Security Center."
                             }   
-                        } # if HP Wolf is registered in WSC      
-                    } # if $HP_Wolf
+                        } # if HP Wolf is registered in WSC  
+                    } # function Unregister-HPWolf
+                    Unregister-HPWolf 
                 } # Function Uninstall-HPWolf   
                 Uninstall-HPWolf    
             } # if ParameterSet 'HP_Wolf_Action'
