@@ -233,6 +233,10 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
             Mandatory = $false)]
         [Switch]$KasperskyUninstall,
 
+        [Parameter(parametersetname = 'ESET_Action',
+            Mandatory = $false)]
+        [Switch]$ESETUninstall,
+
         [Parameter(parametersetname = 'WSC_Action',
             Mandatory = $false)]
         [Switch]$UnregisterAV,
@@ -692,6 +696,12 @@ On Windows 7 machines, the CleanWipe utility cannot be run from where ScreenConn
                     Write-Host -ForegroundColor Green "NOT running the tool.`nExiting script."
                 }
             } # if ParametreSet 'Kaspersky_Action'
+            'ESET_Action' {
+                $APP = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "*ESET Endpoint Antivirus*"
+                $UninstallString = $App.UninstallString.Replace('/I', '/X')
+                $UninstallCommand = "$uninstallString /qn /noreboot REBOOT=REALLYSUPPRESS"
+                cmd.exe /c $UninstallCommand
+            } # if ParameterSet ESET_Action
             'WSC_Action' {
                 Write-Host -ForegroundColor Green "The folowing AVs are registered with the Windows Security Center:"
                 $AVP = (Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct).DisplayName
